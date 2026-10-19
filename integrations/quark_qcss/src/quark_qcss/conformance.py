@@ -194,7 +194,7 @@ def main(argv: list[str] | None = None) -> int:
                                  QcssExecutionDriver(client, Translator(load_pulse_library(args.pulse_library))),
                                  shots=args.shots)
     for c in checks:
-        print(f"[{'PASS' if c.passed else 'FAIL'}] {c.level} {c.name:<38} {c.ms:8.1f} ms  {c.detail}")
+        print(f"[{'PASS' if c.passed else 'FAIL'}] {c.level} {c.name:<46} {c.ms:8.1f} ms  {c.detail}")
     passed = sum(c.passed for c in checks)
     print(f"\n{passed}/{len(checks)} checks passed")
     return 0 if passed == len(checks) else 1
