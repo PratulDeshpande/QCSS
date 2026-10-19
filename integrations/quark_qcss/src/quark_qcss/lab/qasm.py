@@ -39,12 +39,15 @@ class Program:
     cregs: dict[str, int] = field(default_factory=dict)       # declaration order is bit order
 
 
-_BINOPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv,
-           ast.Pow: operator.pow}
+_BINOPS = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul, ast.Div: operator.truediv}
+MAX_ANGLE_CHARS = 200                         # compiler output is short; this bounds parse and evaluation work
 _UNARY = {ast.USub: operator.neg, ast.UAdd: operator.pos}
 
 
 def _angle(expr: str, line: int) -> float:
+    if len(expr) > MAX_ANGLE_CHARS:
+        raise QasmError(f"line {line}: angle expression longer than {MAX_ANGLE_CHARS} characters")
+
     def ev(node: ast.AST) -> float:
         if isinstance(node, ast.Constant) and isinstance(node.value, int | float):
             return float(node.value)
@@ -56,9 +59,12 @@ def _angle(expr: str, line: int) -> float:
             return _UNARY[type(node.op)](ev(node.operand))
         raise QasmError(f"line {line}: unsupported angle expression {expr!r}")
     try:
-        return ev(ast.parse(expr.strip(), mode="eval").body)
-    except SyntaxError as err:
-        raise QasmError(f"line {line}: cannot parse angle {expr!r}") from err
+        value = ev(ast.parse(expr.strip(), mode="eval").body)
+    except (SyntaxError, ArithmeticError, RecursionError, MemoryError, ValueError) as err:
+        raise QasmError(f"line {line}: cannot evaluate angle {expr!r}") from err
+    if not math.isfinite(value):
+        raise QasmError(f"line {line}: angle {expr!r} is not finite")
+    return value
 
 
 _DECL_Q = re.compile(r"^(?:qubit(?:\[(\d+)\])?\s+(\w+)|qreg\s+(\w+)\[(\d+)\])$")

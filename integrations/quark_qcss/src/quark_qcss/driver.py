@@ -54,6 +54,9 @@ class QcssExecutionDriver:
                                              tier=self.tier)
         except UnsupportedProgramError as err:
             raise PermanentDriverError(str(err), code="UNSUPPORTED_PROGRAM") from None
+        except Exception as err:          # a bug in lab-owned code must fail the job, not the worker
+            raise PermanentDriverError(f"lab translator failed: {type(err).__name__}: {err}",
+                                       code="TRANSLATOR_ERROR") from err
 
     def submit(self, job: NativeJob) -> Handle:
         t = self._translate(job)

@@ -149,3 +149,17 @@ def test_acquisitions_sharing_a_readout_sequencer_are_spaced(tr):
     t = tr.translate(HEADER + "c[0] = measure $0;\nc[1] = measure $1;", None, shots=1)
     a, b = (s for s, k, _ in ops(t.job) if k == "acquire")
     assert abs(b - a) >= 300                    # both qubits read out through qrm_rf0_seq0
+
+
+@pytest.mark.parametrize("program", [
+    "x $0, $1;", "sx;", "rz $0;", "rz(1, 2) $0;", "cz $0;", "measure $0;", "x(0.5) $0;",
+])
+def test_wrong_operand_or_parameter_counts_are_refused_with_the_line(tr, program):
+    with pytest.raises(UnsupportedProgramError, match="line 1"):
+        tr.translate(program, None, shots=1)
+
+
+@pytest.mark.parametrize("expr", ["9**9**9", "1e308*1e308", "1/0", "-" * 5000 + "1", "(" * 400 + "1" + ")" * 400])
+def test_hostile_angle_expressions_fail_fast_as_qasm_errors(expr):
+    with pytest.raises(QasmError, match="line 1"):
+        parse(f"rz({expr}) $0;")

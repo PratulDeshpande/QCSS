@@ -26,6 +26,7 @@ from quark_qcss.lab.pulse_library import PulseLibrary
 from quark_qcss.lab.qasm import Op, QasmError, parse
 
 NATIVE = ("x", "sx", "rz", "cz", "measure", "barrier")
+_ARITY = {"x": (1, 0), "sx": (1, 0), "rz": (1, 1), "cz": (2, 0), "measure": (1, 0)}   # (qubits, parameters)
 _SHAPES = {"square": job_pb2.WAVEFORM_SHAPE_SQUARE, "gaussian": job_pb2.WAVEFORM_SHAPE_GAUSSIAN,
            "drag": job_pb2.WAVEFORM_SHAPE_DRAG}
 _SHAPE_NAMES = {v: k for k, v in _SHAPES.items()}
@@ -106,6 +107,16 @@ class Translator:
             if op.name not in NATIVE:
                 raise UnsupportedProgramError(f"line {op.line}: gate '{op.name}' is not a native operation "
                                               f"(native: {', '.join(NATIVE)})")
+            if op.name in _ARITY:
+                nq, npar = _ARITY[op.name]
+                if len(op.qubits) != nq or len(op.params) != npar:
+                    raise UnsupportedProgramError(f"line {op.line}: {op.name} takes {nq} qubit(s) and {npar} "
+                                                  f"parameter(s), got {len(op.qubits)} and {len(op.params)}")
+                if op.name == "measure" and len(op.clbits) != 1:
+                    raise UnsupportedProgramError(f"line {op.line}: measure needs a target bit "
+                                                  "(c[i] = measure $q;)")
+                if op.name == "cz" and op.qubits[0] == op.qubits[1]:
+                    raise UnsupportedProgramError(f"line {op.line}: cz needs two different qubits")
             if op.name in ("x", "sx"):
                 (q,) = op.qubits
                 ch = chan(q, op)

@@ -143,3 +143,13 @@ def test_unreachable_control_stack_is_transient():
         with pytest.raises(TransientDriverError) as err:
             d.submit(native("x $0;"))
     assert err.value.transient and err.value.counts_toward_breaker
+
+
+def test_a_crashing_lab_translator_fails_the_job_not_the_worker(client):
+    class Broken:
+        def translate(self, *args, **kwargs):
+            raise KeyError("bug in lab code")
+
+    d = QcssExecutionDriver(client, Broken())  # type: ignore[arg-type]
+    with pytest.raises(PermanentDriverError, match="lab translator failed: KeyError"):
+        d.submit(native("x $0;"))
