@@ -69,9 +69,9 @@ packages = ["src/qcss"]
 include = ["/src", "/tests", "/proto", "/scripts", "/buf.yaml", "/README.md", "/LICENSE", "/NOTICE", "/CHANGELOG.md"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "integrations/quark_qcss/tests"]
 addopts = "-ra -q --strict-markers"
-pythonpath = ["src", "."]
+pythonpath = ["src", ".", "integrations/quark_qcss/src"]
 markers = [
   "slow: long-running physics oracles (nightly)",
   "stochastic: statistical assertions; run with many seeds nightly",
@@ -83,7 +83,11 @@ target-version = "py312"
 line-length = 120
 extend-exclude = ["src/qcss/v1/*_pb2*.py", "src/qcss/v1/*_pb2*.pyi"]
 
+[tool.ruff.lint.isort]
+known-first-party = ["qcss", "quark_qcss", "tests"]
+
 [tool.pyright]
-include = ["src", "tests"]
+include = ["src", "tests", "scripts", "integrations/quark_qcss"]
+extraPaths = ["src", ".", "integrations/quark_qcss/src"]
 exclude = ["src/qcss/v1/*_pb2*.py"]
 pythonVersion = "3.12"

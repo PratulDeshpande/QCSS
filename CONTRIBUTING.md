@@ -20,7 +20,7 @@ python -m pytest                            # about a minute
 
 ```bash
 python -m pytest                       # must pass
-ruff check src tests scripts           # must be clean
+ruff check src tests scripts integrations   # must be clean
 pyright                                # must report 0 errors
 python scripts/gen_proto.py            # only if you edited a .proto file
 ```

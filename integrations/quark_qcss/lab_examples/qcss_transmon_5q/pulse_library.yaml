@@ -1,0 +1,31 @@
+# Native-op -> pulse library for the QCSS transmon_5q device on the qblox_cluster_5q profile.
+#
+# LAB-OWNED (HLD ADR-0003, ADR-0029): Quark never generates pulses. The lab writes and maintains this
+# file; the quark_qcss driver loads it and the lab translator turns physical OpenQASM 3 into QCSS jobs.
+# Live calibration wins: when GetCalibration reports pi_amplitude and pi_length_samples for a qubit,
+# x/sx use a DRAG pulse with those values instead of the defaults below.
+
+grid_ticks: 4                     # every start tick is a multiple of this (Qblox NCO grid is 4 ns)
+min_acquire_spacing_ticks: 300    # Qblox MIN_TIME_BETWEEN_ACQUISITIONS on one readout sequencer
+
+qubits:                           # physical qubit -> channels, frame, readout sequencer (DescribeDevice generator_id)
+  0: {drive: xy_q0, frame: q0, readout: ro_q0, flux: flux_q0, readout_sequencer: qrm_rf0_seq0}
+  1: {drive: xy_q1, frame: q1, readout: ro_q1, flux: flux_q1, readout_sequencer: qrm_rf0_seq0}
+  2: {drive: xy_q2, frame: q2, readout: ro_q2, flux: flux_q2, readout_sequencer: qrm_rf0_seq0}
+  3: {drive: xy_q3, frame: q3, readout: ro_q3, flux: flux_q3, readout_sequencer: qrm_rf0_seq0}
+  4: {drive: xy_q4, frame: q4, readout: ro_q4, flux: flux_q4, readout_sequencer: qrm_rf0_seq0}
+
+single_qubit:                     # used while the live calibration has no pi pulse for the qubit
+  shape: square
+  length_samples: 20
+  pi_amplitude: 0.5               # pi rotation at transmon_5q's 50 MHz full-scale Rabi rate
+
+readout:
+  integration_ticks: 1000         # multiple of the profile's 4-tick integration granularity
+  mode: discriminated
+
+# Two-qubit gates, keyed "a-b" with a < b. Empty until the lab calibrates a CZ flux pulse for a pair;
+# the translator refuses `cz` on any pair not listed here. Example of an entry:
+#   "0-1": {channel: flux_q0, shape: square, length_samples: 60, amplitude: 0.3,
+#           phase_corrections: {0: 0.0, 1: 0.0}}
+two_qubit: {}
