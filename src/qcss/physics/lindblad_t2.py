@@ -48,7 +48,7 @@ class LindbladT2:
     def __init__(self, p: QutritParams) -> None:
         self.n = len(p.f01_ghz)
         self.a = [self._embed(qt.destroy(DIM), q) for q in range(self.n)]
-        self.num = [x.dag() * x for x in self.a]
+        self.num = [x.dag() @ x for x in self.a]
         self._setup(p)
         self.rho = self.thermal_state()
         self.clock = 0.0
@@ -75,7 +75,7 @@ class LindbladT2:
     def _embed(self, op: qt.Qobj, q: int) -> qt.Qobj:
         ops = [qt.qeye(DIM)] * self.n
         ops[q] = op
-        return qt.tensor(ops)
+        return qt.tensor(*ops)
 
     def _collapse_ops(self) -> list[qt.Qobj]:
         c = []
@@ -95,14 +95,14 @@ class LindbladT2:
         return c
 
     def thermal_state(self) -> qt.Qobj:
-        return qt.tensor([qt.Qobj(np.diag(thermal_populations(nb, DIM))) for nb in self.p.nbar])
+        return qt.tensor(*[qt.Qobj(np.diag(thermal_populations(nb, DIM))) for nb in self.p.nbar])
 
     def _h_static_in_frame(self, extra_detuning: dict[int, float] | None = None) -> qt.Qobj:
         h = 0 * self.num[0]
         for q in range(self.n):
             delta = TWO_PI * (self.p.f01_ghz[q] - self.p.frame_ghz[q]) + (extra_detuning or {}).get(q, 0.0)
             alpha = TWO_PI * self.p.alpha_ghz[q]
-            h += delta * self.num[q] + 0.5 * alpha * self.a[q].dag() * self.a[q].dag() * self.a[q] * self.a[q]
+            h += delta * self.num[q] + 0.5 * alpha * (self.a[q].dag() @ self.a[q].dag() @ self.a[q] @ self.a[q])
         return h
 
     def _coupling_terms(self) -> list:
@@ -110,7 +110,7 @@ class LindbladT2:
         for (q, r), j_ghz in self.p.couplings_ghz.items():
             j = TWO_PI * j_ghz
             dw = self.w_frame[q] - self.w_frame[r]
-            op = self.a[q].dag() * self.a[r]
+            op = self.a[q].dag() @ self.a[r]
             if abs(dw) < 1e-15:
                 terms.append(j * (op + op.dag()))
             else:   # time-dependent in the per-qubit frames; ABSOLUTE time t (ns)
@@ -131,7 +131,7 @@ class LindbladT2:
         n_samp = len(arrays[0])
         tlist = t0_ns + dt_ns * np.arange(n_samp + 1)              # sample starts + end
         pad = lambda x: np.append(x, x[-1])                           # hold last value
-        h = [self._h_static_in_frame()] + self._coupling_terms()
+        h: list = [self._h_static_in_frame()] + self._coupling_terms()     # QobjEvo list format
         for q, om in (drives or {}).items():
             h.append([0.5 * self.a[q].dag(), pad(np.asarray(om, dtype=np.complex128))])
             h.append([0.5 * self.a[q], pad(np.conj(np.asarray(om, dtype=np.complex128)))])
@@ -148,7 +148,9 @@ class LindbladT2:
     def _frame_rotation(self, t_ns: float) -> qt.Qobj:
         """V(t) = exp(i sum_q (w_frame_q - w_ref) n_q t): common frame -> per-qubit frames."""
         w_ref = self.w_frame[0]
-        gen = sum(((self.w_frame[q] - w_ref) * self.num[q] for q in range(self.n)), 0 * self.num[0])
+        gen = 0 * self.num[0]
+        for q in range(self.n):
+            gen = gen + (self.w_frame[q] - w_ref) * self.num[q]
         return (1j * gen * t_ns).expm()
 
     def _common_liouvillian(self) -> qt.Qobj:
@@ -157,11 +159,13 @@ class LindbladT2:
             h = 0 * self.num[0]
             for q in range(self.n):
                 h += (TWO_PI * self.p.f01_ghz[q] - w_ref) * self.num[q]
-                h += 0.5 * TWO_PI * self.p.alpha_ghz[q] * self.a[q].dag() ** 2 * self.a[q] ** 2
+                h += 0.5 * TWO_PI * self.p.alpha_ghz[q] * (self.a[q].dag() ** 2 @ self.a[q] ** 2)
             for (q, r), j_ghz in self.p.couplings_ghz.items():
-                op = self.a[q].dag() * self.a[r]
+                op = self.a[q].dag() @ self.a[r]
                 h += TWO_PI * j_ghz * (op + op.dag())
-            self._L_common = qt.liouvillian(h, self.c_ops)
+            # qutip 5.3's @overload stubs omit the defaults of data_only/chi, so a plain call matches none
+            liouv: qt.Qobj = qt.liouvillian(h, self.c_ops)  # pyright: ignore[reportCallIssue]
+            self._L_common = liouv
         return self._L_common
 
     def evolve_idle(self, t0_ns: float, duration_ns: float) -> None:
@@ -175,20 +179,20 @@ class LindbladT2:
             self.rho = qt.Qobj(np.diag(pops), dims=self.rho.dims)
             return
         v0 = self._frame_rotation(t0_ns)
-        rho_c = v0.dag() * self.rho * v0
+        rho_c = v0.dag() @ self.rho @ v0
         L = self._common_liouvillian()
         dur = round(float(duration_ns * 1000))                      # cache key in ps
         if self.n <= 2:
             if dur not in self._idle_cache:
                 self._idle_cache[dur] = (L * duration_ns).expm()
-            rho_c = qt.vector_to_operator(self._idle_cache[dur] * qt.operator_to_vector(rho_c))
+            rho_c = qt.vector_to_operator(self._idle_cache[dur] @ qt.operator_to_vector(rho_c))
         else:
             vec = qt.operator_to_vector(rho_c).full().ravel()
             mat = L.data.as_scipy() if hasattr(L.data, "as_scipy") else L.data
             out = expm_multiply(mat * duration_ns, vec)
             rho_c = qt.vector_to_operator(qt.Qobj(out.reshape(-1, 1), dims=qt.operator_to_vector(rho_c).dims))
         v1 = self._frame_rotation(t0_ns + duration_ns)
-        self.rho = v1 * rho_c * v1.dag()
+        self.rho = v1 @ rho_c @ v1.dag()
 
     # ---------------------------------------------------------------------------------
     def advance_to(self, t_ns: float, rng: np.random.Generator | None = None) -> None:
@@ -212,7 +216,10 @@ class LindbladT2:
         """Non-selective projective measurement (ensemble mode): rho -> sum_k P_k rho P_k."""
         for q in qubits:
             projs = [self._embed(qt.basis(DIM, k).proj(), q) for k in range(DIM)]
-            self.rho = sum((P * self.rho * P for P in projs), 0 * self.rho)
+            dephased = 0 * self.rho
+            for P in projs:
+                dephased = dephased + P @ self.rho @ P
+            self.rho = dephased
 
     def measure(self, q: int, t_now: float | None = None, rng: np.random.Generator | None = None) -> int:
         """Projective qutrit measurement with collapse (Born rule)."""
@@ -223,7 +230,7 @@ class LindbladT2:
         p = np.clip(self.level_probabilities(q), 0, None)
         k = int(rng.choice(DIM, p=p / p.sum()))
         proj = self._embed(qt.basis(DIM, k).proj(), q)
-        self.rho = proj * self.rho * proj
+        self.rho = proj @ self.rho @ proj
         tr = float(np.real(self.rho.tr()))
         if tr > 0:
             self.rho = self.rho / tr

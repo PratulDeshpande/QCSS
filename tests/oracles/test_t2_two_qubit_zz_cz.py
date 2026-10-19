@@ -23,16 +23,16 @@ def test_emergent_zz_from_exchange_coupling():
     # Construct two-qutrit Hamiltonian with exchange J
     a0 = qt.tensor(qt.destroy(DIM), qt.qeye(DIM))
     a1 = qt.tensor(qt.qeye(DIM), qt.destroy(DIM))
-    n0 = a0.dag() * a0
-    n1 = a1.dag() * a1
+    n0 = a0.dag() @ a0
+    n1 = a1.dag() @ a1
 
     H0 = (
         2 * np.pi * f1_ghz * n0
-        + 0.5 * 2 * np.pi * a1_ghz * a0.dag() ** 2 * a0 ** 2
+        + 0.5 * 2 * np.pi * a1_ghz * (a0.dag() ** 2 @ a0 ** 2)
         + 2 * np.pi * f2_ghz * n1
-        + 0.5 * 2 * np.pi * a2_ghz * a1.dag() ** 2 * a1 ** 2
+        + 0.5 * 2 * np.pi * a2_ghz * (a1.dag() ** 2 @ a1 ** 2)
     )
-    H_int = 2 * np.pi * j_ghz * (a0.dag() * a1 + a0 * a1.dag())
+    H_int = 2 * np.pi * j_ghz * (a0.dag() @ a1 + a0 @ a1.dag())
     H_tot = H0 + H_int
 
     # Diagonalize to find dressed eigenenergies

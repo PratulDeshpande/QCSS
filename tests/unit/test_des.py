@@ -83,6 +83,7 @@ def test_des_trace():
     engine.schedule_at(2, Prio.PLAYBACK, lambda: None)
     engine.run_until(2)
 
+    assert engine.trace is not None                 # enabled by trace_len
     assert len(engine.trace) == 2
     assert engine.trace[0][0] == 1
     assert engine.trace[0][1] == Prio.FRAME_UPDATE

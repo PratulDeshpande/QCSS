@@ -1,6 +1,8 @@
 """Statistical assertion helpers with 5-sigma tolerance policy."""
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 from scipy import stats
 
@@ -30,6 +32,6 @@ def assert_hist_matches(counts_a: np.ndarray, counts_b: np.ndarray, alpha: float
     """Assert two histograms match via chi-square test."""
     table = np.vstack([counts_a, counts_b])
     table = table[:, table.sum(axis=0) > 0]
-    _, p, _, expected = stats.chi2_contingency(table)
-    assert (expected >= 5).all(), "too few counts per bin for chi-square"
-    assert p > alpha, f"distributions differ (p={p:.2e})"
+    res: Any = stats.chi2_contingency(table)    # scipy's stubs hide the result's named fields
+    assert (res.expected_freq >= 5).all(), "too few counts per bin for chi-square"
+    assert res.pvalue > alpha, f"distributions differ (p={res.pvalue:.2e})"

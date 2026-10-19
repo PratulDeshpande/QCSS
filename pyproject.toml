@@ -50,7 +50,7 @@ dev = [
   "hypothesis>=6",
   "pytest-xdist>=3",
   "ruff>=0.6",
-  "pyright>=1.1",
+  "pyright==1.1.414",               # pinned: CI type-checks with zero errors; bump deliberately
 ]
 
 [project.urls]

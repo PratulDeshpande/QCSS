@@ -26,10 +26,8 @@ jobs:
       - run: ruff check src tests scripts
 
   typecheck:
-    name: Type check (pyright, advisory)
+    name: Type check (pyright)
     runs-on: ubuntu-latest
-    # Known baseline of numpy/protobuf typing findings; reported but not blocking yet.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

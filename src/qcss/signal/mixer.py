@@ -38,7 +38,7 @@ class IQCorrection:
     phase_rad: float = 0.0         # mixes I into Q
 
     def apply(self, m: np.ndarray) -> np.ndarray:
-        i, q = m.real, m.imag
+        i, q = np.real(m), np.imag(m)
         q2 = self.gain_ratio * (q * np.cos(self.phase_rad) + i * np.sin(self.phase_rad))
         return (i + self.dc_i) + 1j * (q2 + self.dc_q)
 

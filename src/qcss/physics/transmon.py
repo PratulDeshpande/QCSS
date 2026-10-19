@@ -57,8 +57,8 @@ class FluxModel:
     def f01(self, v_dc: np.ndarray, v_fast: np.ndarray) -> np.ndarray:
         phi = self.phi(v_dc, v_fast)
         if phi.ndim == 2:
-            return f01_ghz(phi, self.f_max[:, None], self.ec[:, None], self.d[:, None])
-        return f01_ghz(phi, self.f_max, self.ec, self.d)
+            return np.asarray(f01_ghz(phi, self.f_max[:, None], self.ec[:, None], self.d[:, None]))
+        return np.asarray(f01_ghz(phi, self.f_max, self.ec, self.d))
 
 
 def nbar_from_temperature(f_ghz: float, t_eff_mk: float) -> float:

@@ -24,7 +24,7 @@ DEV1 = load_device("src/qcss/config/devices/test_ideal_1q.yaml")
 
 class Ctx:
     def __init__(self):
-        self.status = None
+        self.status: tuple = ()             # (code, details) once the servicer aborts
 
     async def abort(self, code, details=""):
         self.status = (code, details)

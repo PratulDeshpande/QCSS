@@ -70,5 +70,5 @@ def test_mixer_os_correction():
     m = np.array([0.5 + 0.5j])
     out = apply_mixer(m, truth, corr, lo_enabled=True)
     # With first-order correction applied, output is close to un-impaired signal within ~1%
-    assert np.isclose(out.real, 0.5, atol=0.01)
-    assert np.isclose(out.imag, 0.5, atol=0.01)
+    assert np.isclose(np.real(out), 0.5, atol=0.01)
+    assert np.isclose(np.imag(out), 0.5, atol=0.01)

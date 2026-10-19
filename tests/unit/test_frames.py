@@ -89,7 +89,9 @@ def test_virtual_z_reaches_the_cross_resonance_drive():
         j.main.instructions.add(start_tick=0, play=job_pb2.Play(channel_id="cr_q0_q1", waveform_id="cr", amplitude=0.3))
         ctx = SimulationContext(prof, dev, TimeBase.from_clocks("1e9"))
         plan = ctx.plan(j)
-        (ev,) = ctx.dry_run_lift(plan.points[0], plan.qubits, ctx.calibration.snapshot())
+        events = ctx.dry_run_lift(plan.points[0], plan.qubits, ctx.calibration.snapshot())
+        assert events is not None                               # None would mean an unliftable pulse
+        (ev,) = events
         assert ev.qubits == (plan.qubits.index(0),)            # the CR pulse drives the control qubit
         return ev.unitary
 

@@ -91,7 +91,7 @@ class JobManager:
                 return
             yield chunk
 
-    def _finish(self, rec: _JobRecord, state: int, msg: str = "") -> None:
+    def _finish(self, rec: _JobRecord, state: result_pb2.JobState, msg: str = "") -> None:
         if rec.finished.is_set():
             return
         rec.status.state = state

@@ -31,6 +31,7 @@ def test_cross_tier_t1a_vs_t1b_noiseless_clifford():
 
         t1b = StatevectorT1b(3, [1e12] * 3, [1e12] * 3)
         for inst in circ:
+            assert isinstance(inst, stim.CircuitInstruction)
             targets = [t.value for t in inst.targets_copy()]
             if inst.name == "H":
                 for q in targets:

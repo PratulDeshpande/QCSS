@@ -35,12 +35,12 @@ def test_drag_waveform_components():
     beta = 2.5
     d = drag(n, sigma=16.0, beta_samples=beta)
     # I component is Gaussian
-    assert np.allclose(d.real, gaussian(n, sigma=16.0))
+    assert np.allclose(np.real(d), gaussian(n, sigma=16.0))
     # Q component is beta * gradient(I)
     expected_q = beta * np.gradient(gaussian(n, sigma=16.0))
-    assert np.allclose(d.imag, expected_q)
+    assert np.allclose(np.imag(d), expected_q)
     # Q must be anti-symmetric around center
-    assert np.isclose(d.imag[n // 2], 0.0, atol=0.01)
+    assert np.isclose(np.imag(d)[n // 2], 0.0, atol=0.01)
 
 
 def test_square_and_flattop():
@@ -51,11 +51,12 @@ def test_square_and_flattop():
     ft = cosine_flattop(40, rise=10)
     assert len(ft) == 40
     # Peak is 1.0
-    assert np.isclose(np.max(ft.real), 1.0)
+    assert np.isclose(np.max(np.real(ft)), 1.0)
     # Middle is flat 1.0
-    assert np.allclose(ft.real[10:30], 1.0)
+    assert np.allclose(np.real(ft)[10:30], 1.0)
     # Ends ramp up from 0
-    assert ft.real[0] < ft.real[5] < ft.real[10]
+    ft_i = np.real(ft)
+    assert ft_i[0] < ft_i[5] < ft_i[10]
 
 
 def test_waveform_library_unique_memory():

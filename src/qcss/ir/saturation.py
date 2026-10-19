@@ -29,8 +29,8 @@ def render_port_iq(n_samples: int, fs_hz: float,
 def check(x: np.ndarray, full_scale: float, policy: SaturationPolicy,
           port_id: str) -> tuple[np.ndarray, list[str], list[str]]:
     """Return (possibly clipped stream, errors, warnings)."""
-    peak_i = float(np.max(np.abs(x.real), initial=0.0))
-    peak_q = float(np.max(np.abs(x.imag), initial=0.0))
+    peak_i = float(np.max(np.abs(np.real(x)), initial=0.0))
+    peak_q = float(np.max(np.abs(np.imag(x)), initial=0.0))
     peak = max(peak_i, peak_q)
     if peak <= full_scale * (1 + 1e-9):
         return x, [], []
@@ -39,6 +39,6 @@ def check(x: np.ndarray, full_scale: float, policy: SaturationPolicy,
         return x, [msg], []
     if policy is SaturationPolicy.WRAP:   # two's-complement-like wrap, normalised
         wrap = lambda v: (v + full_scale) % (2 * full_scale) - full_scale
-        return wrap(x.real) + 1j * wrap(x.imag), [], [msg + " (wrapped)"]
-    clipped = np.clip(x.real, -full_scale, full_scale) + 1j * np.clip(x.imag, -full_scale, full_scale)
+        return wrap(np.real(x)) + 1j * wrap(np.imag(x)), [], [msg + " (wrapped)"]
+    clipped = np.clip(np.real(x), -full_scale, full_scale) + 1j * np.clip(np.imag(x), -full_scale, full_scale)
     return clipped, [], [msg + " (clipped)"]

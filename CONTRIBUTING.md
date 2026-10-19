@@ -21,7 +21,7 @@ python -m pytest                            # about a minute
 ```bash
 python -m pytest                       # must pass
 ruff check src tests scripts           # must be clean
-pyright                                # advisory today: do not add new findings
+pyright                                # must report 0 errors
 python scripts/gen_proto.py            # only if you edited a .proto file
 ```
 
@@ -29,8 +29,9 @@ CI runs the same checks on Linux and Windows (Python 3.12 and 3.13). It also reg
 code and fails if the committed files in `src/qcss/v1/` differ, so commit regenerated code together
 with the `.proto` change.
 
-> `pyright` currently reports a known baseline of numpy and protobuf typing findings, so that CI job
-> is advisory. Changes that reduce the count are welcome; changes that add to it will be asked to fix.
+> **Typing tips.** Some third-party stubs are stricter than the libraries. Prefer `np.real(x)` /
+> `np.imag(x)` over `x.real` / `x.imag` on loosely typed arrays, and `@` (not `*`) for qutip operator
+> products. Keep `# pyright: ignore[rule]` for genuine upstream stub bugs, with a comment saying why.
 
 ## Ground rules
 

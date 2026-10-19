@@ -171,7 +171,7 @@ tests/                 unit, oracles, cross_tier, integration
 ```bash
 python -m pytest                    # full suite, about a minute
 ruff check src tests scripts        # lint
-pyright                             # type check (advisory: see CONTRIBUTING.md)
+pyright                             # type check (must report 0 errors)
 python scripts/gen_proto.py         # regenerate src/qcss/v1 after editing a .proto file
 ```
 

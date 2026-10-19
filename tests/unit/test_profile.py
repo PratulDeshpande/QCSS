@@ -6,6 +6,7 @@ from pydantic import ValidationError
 
 from qcss.config.loader import get_unverified_fields
 from qcss.config.profile import (
+    AcqMode,
     AcquisitionSpec,
     ClockSpec,
     FeedbackSpec,
@@ -27,7 +28,7 @@ def test_generator_cap_exceeded():
     g2 = GeneratorSpec(generator_id="g2", port_id="p0", sample_rate_hz="1e9",
                        rt_granularity_ticks=1, rt_min_duration_ticks=4, wave_mem_samples=1000, instr_mem=1000)
     clock = ClockSpec(tick_hz="1e9")
-    acq = AcquisitionSpec(modes=("raw_trace",))
+    acq = AcquisitionSpec(modes=(AcqMode.RAW_TRACE,))
     fb = FeedbackSpec(latencies=())
 
     with pytest.raises(ValidationError, match="max 1"):

@@ -49,5 +49,5 @@ def test_lifter_vs_t2_dissipationless_fidelity():
         rho_2x2 = rho_2x2 / tr2
 
     # Fidelity: <psi| rho |psi>
-    fid = float((psi_expected.conj().T @ rho_2x2 @ psi_expected).real)
+    fid = float(np.real(psi_expected.conj().T @ rho_2x2 @ psi_expected))
     assert fid >= 1.0 - 1e-5, f"Lifter vs T2 fidelity too low: {fid}"

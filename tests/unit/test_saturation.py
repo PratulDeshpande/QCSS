@@ -34,8 +34,8 @@ def test_saturation_clip():
     clipped, errors, warnings = check_saturation(x, full_scale=1.0, policy=SaturationPolicy.CLIP, port_id="port_0")
     assert len(errors) == 0
     assert len(warnings) == 1
-    assert np.max(np.abs(clipped.real)) <= 1.0
-    assert np.max(np.abs(clipped.imag)) <= 1.0
+    assert np.max(np.abs(np.real(clipped))) <= 1.0
+    assert np.max(np.abs(np.imag(clipped))) <= 1.0
     assert clipped[1].real == 1.0
     assert clipped[1].imag == -1.0
 

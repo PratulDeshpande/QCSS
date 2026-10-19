@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import socket
+from typing import Any, cast
 
 import grpc
 import numpy as np
@@ -101,7 +102,7 @@ async def test_servicer_submit_stream_status():
 
         assert [c.sequence_number for c in chunks] == [1, 2, 3]
         last_iq = from_proto(chunks[2].acquisitions[0].iq)
-        assert np.allclose(last_iq.imag, 2.0)
+        assert np.allclose(np.imag(last_iq), 2.0)
 
         st = await svc.GetJobStatus(pb.GetJobStatusRequest(job_id=resp.job_id), ctx)
         assert st.status.state == result_pb2.JOB_STATE_COMPLETED
@@ -264,11 +265,12 @@ async def test_health_check_reports_serving_and_reflection_lists_service():
     server = await serve(addr, jobs)
     try:
         async with grpc.aio.insecure_channel(addr) as ch:
-            hc = health_pb2_grpc.HealthStub(ch)
+            # typeshed types these generated stubs for sync channels only; the aio channel works at runtime
+            hc: Any = health_pb2_grpc.HealthStub(cast(Any, ch))
             for name in ("", "qcss.v1.ControlService"):
                 r = await hc.Check(health_pb2.HealthCheckRequest(service=name))
                 assert r.status == health_pb2.HealthCheckResponse.SERVING
-            refl = reflection_pb2_grpc.ServerReflectionStub(ch)
+            refl: Any = reflection_pb2_grpc.ServerReflectionStub(cast(Any, ch))
             names = []
             async for resp in refl.ServerReflectionInfo(iter([reflection_pb2.ServerReflectionRequest(list_services="")])):
                 names = [s.name for s in resp.list_services_response.service]

@@ -41,7 +41,7 @@ class StatevectorT1b:
         return t
 
     def _sl(self, q: int, v: int) -> tuple:
-        s = [slice(None)] * self.n
+        s: list[slice | int] = [slice(None)] * self.n
         s[q] = v
         return tuple(s)
 

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import inspect
+from collections.abc import AsyncIterator
+from typing import NoReturn, Protocol
 
 import grpc
 
@@ -14,6 +16,14 @@ from qcss.v1 import control_service_pb2_grpc as pbg
 from qcss.v1 import device_pb2
 
 
+class ServicerContext(Protocol):
+    """The part of grpc.aio.ServicerContext the servicer uses. Both calls end the RPC by raising."""
+
+    async def abort(self, code: grpc.StatusCode, details: str = "") -> NoReturn: ...
+
+    async def abort_with_status(self, status: grpc.Status) -> NoReturn: ...
+
+
 class ControlService(pbg.ControlServiceServicer):
     def __init__(self, jobs: JobManager, device: pb.DescribeDeviceResponse,
                  calibration: CalibrationStore | None = None) -> None:
@@ -21,7 +31,7 @@ class ControlService(pbg.ControlServiceServicer):
         self.device = device
         self.calibration = calibration if calibration is not None else CalibrationStore()
 
-    async def SubmitJob(self, request, context):
+    async def SubmitJob(self, request: pb.SubmitJobRequest, context: ServicerContext) -> pb.SubmitJobResponse:
         try:
             job_id = await self.jobs.submit(request.job)
             info = self.jobs.info(job_id)
@@ -35,19 +45,20 @@ class ControlService(pbg.ControlServiceServicer):
         except TierRoutingError as err:
             await context.abort_with_status(failed_precondition_status("FIDELITY_TIER", "job.requested_tier", str(err)))
 
-    async def GetJobStatus(self, request, context):
+    async def GetJobStatus(self, request: pb.GetJobStatusRequest, context: ServicerContext) -> pb.GetJobStatusResponse:
         try:
             return pb.GetJobStatusResponse(status=self.jobs.status(request.job_id))
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown job {request.job_id}")
 
-    async def CancelJob(self, request, context):
+    async def CancelJob(self, request: pb.CancelJobRequest, context: ServicerContext) -> pb.CancelJobResponse:
         try:
             return pb.CancelJobResponse(status=self.jobs.cancel(request.job_id))
         except KeyError:
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown job {request.job_id}")
 
-    async def StreamResults(self, request, context):
+    async def StreamResults(self, request: pb.StreamResultsRequest,
+                            context: ServicerContext) -> AsyncIterator[pb.StreamResultsResponse]:
         if not self.jobs.has_job(request.job_id):
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown job {request.job_id}")
         async for chunk in self.jobs.results(request.job_id):
@@ -55,17 +66,20 @@ class ControlService(pbg.ControlServiceServicer):
                 continue
             yield pb.StreamResultsResponse(chunk=chunk)
 
-    async def GetCalibration(self, request, context):
+    async def GetCalibration(self, request: pb.GetCalibrationRequest,
+                             context: ServicerContext) -> pb.GetCalibrationResponse:
         return pb.GetCalibrationResponse(snapshot=self.calibration.snapshot(list(request.qubit_indices)))
 
-    async def UpdateCalibration(self, request, context):
+    async def UpdateCalibration(self, request: pb.UpdateCalibrationRequest,
+                                context: ServicerContext) -> pb.UpdateCalibrationResponse:
         try:
             return pb.UpdateCalibrationResponse(new_epoch=self.calibration.update(request.snapshot,
                                                                                   request.expected_epoch))
         except CalibrationEpochError as err:
             await context.abort_with_status(failed_precondition_status("CALIBRATION_EPOCH", "expected_epoch", str(err)))
 
-    async def DescribeDevice(self, request, context):
+    async def DescribeDevice(self, request: pb.DescribeDeviceRequest,
+                             context: ServicerContext) -> pb.DescribeDeviceResponse:
         return self.device
 
 
@@ -104,7 +118,8 @@ async def serve(
     # Health checking (grpcio-health-checking): SERVING for the server and ControlService
     try:
         from grpc_health.v1 import health, health_pb2, health_pb2_grpc
-        health_servicer = health.aio.HealthServicer() if hasattr(health, "aio") else health.HealthServicer()
+        aio_health = getattr(health, "aio", None)          # async servicer only in newer grpcio-health-checking
+        health_servicer = aio_health.HealthServicer() if aio_health is not None else health.HealthServicer()
         health_pb2_grpc.add_HealthServicer_to_server(health_servicer, server)
         for name in ("", service_name):
             res = health_servicer.set(name, health_pb2.HealthCheckResponse.SERVING)

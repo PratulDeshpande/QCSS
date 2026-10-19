@@ -9,6 +9,7 @@ Supports both:
 from __future__ import annotations
 
 import re
+from typing import Literal
 
 import numpy as np
 import pymatching
@@ -186,9 +187,9 @@ class StimT1a:
         p1 = 0.0 if peek == 1 else (1.0 if peek == -1 else 0.5)
         return np.array([1.0 - p1, p1, 0.0], dtype=np.float64)
 
-    def state_vector(self, endian: str = "big") -> np.ndarray:
+    def state_vector(self, endian: Literal["little", "big"] = "big") -> np.ndarray:
         """Return state vector from tableau simulator."""
-        return self.sim.state_vector(endian=endian)
+        return np.asarray(self.sim.state_vector(endian=endian))
 
     # -- Circuit & Batch Sampling Methods (High-Throughput QEC) --
 
@@ -202,7 +203,8 @@ class StimT1a:
         return self.compile_sampler(seed=seed).sample(shots=shots)
 
     def sample_detectors(self, shots: int, seed: int | None = None) -> tuple[np.ndarray, np.ndarray]:
-        return self.compile_detector_sampler(seed=seed).sample(shots=shots, separate_observables=True)
+        dets, obs = self.compile_detector_sampler(seed=seed).sample(shots=shots, separate_observables=True)
+        return dets, obs
 
     def get_detector_error_model(self, decompose_errors: bool = True) -> stim.DetectorErrorModel:
         return self.circuit.detector_error_model(decompose_errors=decompose_errors)
@@ -211,7 +213,7 @@ class StimT1a:
         """Decode detection events using PyMatching reference decoder."""
         if self._cached_matcher is None:
             self._cached_matcher = pymatching.Matching.from_detector_error_model(self.get_detector_error_model())
-        return self._cached_matcher.decode_batch(dets)
+        return np.asarray(self._cached_matcher.decode_batch(dets))   # no return_weights: an array
 
     def evaluate_logical_error_rate(self, shots: int, seed: int | None = None) -> float:
         """Sample detectors and observables, decode with PyMatching, and return logical error rate."""

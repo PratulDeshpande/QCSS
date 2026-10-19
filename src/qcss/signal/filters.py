@@ -72,7 +72,7 @@ def bias_tee_sos(tau_s: float, fs_hz: float) -> np.ndarray:
 
 def butter_sos(order: int, cutoff_hz: float, fs_hz: float) -> np.ndarray:
     """DAC reconstruction / line low-pass, normalised with the ACTUAL sample rate (fixes SC-01)."""
-    return signal.butter(order, cutoff_hz, btype="low", fs=fs_hz, output="sos")
+    return np.asarray(signal.butter(order, cutoff_hz, btype="low", fs=fs_hz, output="sos"))
 
 
 class FluxLineModel:

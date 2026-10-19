@@ -144,7 +144,7 @@ class SurrogateReadout:
         for k in range(n_labels):
             sel = res.labels == k
             mu[k] = res.iq[sel].mean() if np.any(sel) else res.iq[levels == k].mean()
-        spread = float(np.sqrt(np.mean([np.var(res.iq[levels == lv].real) for lv in range(2)])))
+        spread = float(np.sqrt(np.mean([np.var(np.real(res.iq[levels == lv])) for lv in range(2)])))
         return PhenomenologicalReadout(conf, mu, max(spread, 1e-12))
 
     def acquire(self, levels: np.ndarray, n: int, t1_ns: float, rng: np.random.Generator,
@@ -153,4 +153,5 @@ class SurrogateReadout:
         if self.physical is not None:
             t1_key = float(f"{t1_key:.3g}")                        # drifted T1s share a calibration
         labels, iq = self._model(n, t1_key).sample(np.asarray(levels), rng, want_iq=True)
+        assert iq is not None                                      # want_iq=True always returns IQ
         return AcquireResult(labels.astype(np.uint8), iq, None)
