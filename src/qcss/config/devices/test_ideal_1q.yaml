@@ -1,0 +1,23 @@
+device_name: test_ideal_1q
+chip_area_cm2: 1.0
+qubits:
+  - qubit_index: 0
+    f_max_ghz: 5.0
+    ec_ghz: 0.3
+    d_asym: 0.0
+    phi_offset: 0.0
+    t1_us: 1000.0
+    t2_star_us: 1000.0
+    t_eff_mk: 20.0
+    p_excited: 0.0001
+    rabi_max_ghz: 0.05
+    xy_mm: [0.0, 0.0]
+couplers: []
+resonators:
+  - qubit_index: 0
+    f_r_ghz: 7.0
+    kappa_mhz: 1.0
+    pulls_mhz: [0.0, -1.5, -3.0]
+    cable_delay_ns: 100.0
+    eta: 0.5
+    readout_photons: 5.0

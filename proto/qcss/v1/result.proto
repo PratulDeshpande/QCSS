@@ -1,0 +1,56 @@
+syntax = "proto3";
+
+package qcss.v1;
+
+import "google/protobuf/timestamp.proto";
+import "qcss/v1/common.proto";
+import "qcss/v1/job.proto";
+
+enum JobState {
+  JOB_STATE_UNSPECIFIED = 0;
+  JOB_STATE_QUEUED = 1;
+  JOB_STATE_VALIDATING = 2;
+  JOB_STATE_RUNNING = 3;
+  JOB_STATE_COMPLETED = 4;
+  JOB_STATE_FAILED = 5;
+  JOB_STATE_CANCELLED = 6;
+  JOB_STATE_REJECTED = 7;
+}
+
+enum NoiseFidelity {
+  NOISE_FIDELITY_UNSPECIFIED = 0;
+  NOISE_FIDELITY_PHYSICAL = 1;   // non-Pauli physics (T1b exact AD, T2, T3)
+  NOISE_FIDELITY_TWIRLED = 2;    // Pauli-twirled approximation (T1a)
+  NOISE_FIDELITY_SURROGATE = 3;  // analytic/lookup (T0)
+}
+
+message JobStatus {
+  string job_id = 1;
+  JobState state = 2;
+  double progress = 3;
+  string message = 4;
+  google.protobuf.Timestamp submitted_at = 5;
+  google.protobuf.Timestamp started_at = 6;
+  google.protobuf.Timestamp finished_at = 7;
+  FidelityTier tier_used = 8;
+  NoiseFidelity noise_fidelity = 9;
+}
+
+message AcquisitionResult {
+  string result_key = 1;
+  NdArray iq = 2;
+  NdArray states = 3;
+  NdArray shot_end_ticks = 4;
+}
+
+message ResultChunk {
+  string job_id = 1;
+  uint64 sequence_number = 2;
+  repeated uint32 sweep_point = 3;
+  uint64 shot_offset = 4;
+  uint32 num_shots_in_chunk = 5;
+  repeated AcquisitionResult acquisitions = 6;
+  uint64 calibration_epoch = 7;
+  bool is_last = 8;
+  repeated string warnings = 9;
+}

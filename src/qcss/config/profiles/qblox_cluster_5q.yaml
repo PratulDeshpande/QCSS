@@ -1,0 +1,97 @@
+profile_name: qblox_cluster_5q
+vendor: qblox
+clock:
+  tick_hz: "1e9"                       # 1 tick = 1 ns; Qblox RT grid is 1 ns
+  provenance: {source_url: "https://docs.qblox.com/en/main/products/qblox_instruments/q1/index.html", verified: true}
+ports:
+  - port_id: qcm_rf0_out0
+    kind: rf_iq
+    max_generators: 6
+    full_scale_per_path: 1.0
+    saturation_policy: warn
+    lo_frequency_hz: 4.9e9
+    provenance: {note: "saturation behaviour not documented by Qblox (UNVERIFIED)", verified: false}
+  - port_id: qcm_flux_out0
+    kind: baseband
+    max_generators: 6
+    full_scale_per_path: 1.0
+    saturation_policy: warn
+    provenance: {verified: true}
+  - port_id: qrm_rf0_out0
+    kind: rf_iq
+    max_generators: 6
+    full_scale_per_path: 1.0
+    saturation_policy: warn
+    lo_frequency_hz: 7.0e9
+    provenance: {verified: true}
+generators:
+  - generator_id: qcm_rf0_seq0
+    port_id: qcm_rf0_out0
+    module_id: qcm_rf0                # QCM-RF module
+    sample_rate_hz: "1e9"
+    rt_granularity_ticks: 1           # 1 ns
+    rt_min_duration_ticks: 4          # 4 ns minimum
+    wave_mem_samples: 16384           # 16,384 samples per sequencer
+    max_waveforms: 1024
+    instr_mem: 16384                  # QCM
+    max_wait_ticks_per_instr: 65535   # duration range [0, 2^16-1] ns
+    nco_grid_ticks: 4                 # NCO ops on 4 ns grid
+    nco_min_spacing_ticks: 4
+    nco_phase_steps: 1000000000
+    nco_freq_resolution_hz: 0.25
+    nco_freq_range_hz: [-500.0e6, 500.0e6]
+    overlap_policy: truncate_previous # new play interrupts running play
+    provenance:
+      source_url: "https://docs.qblox.com/en/main/products/architecture/sequencers/control.html"
+      firmware_version: "docs 2026.4.0"
+      verified: true
+  - generator_id: qcm_flux_seq0
+    port_id: qcm_flux_out0
+    module_id: qcm_flux0              # QCM baseband module
+    sample_rate_hz: "1e9"
+    rt_granularity_ticks: 1
+    rt_min_duration_ticks: 4
+    wave_mem_samples: 16384
+    max_waveforms: 1024
+    instr_mem: 16384
+    max_wait_ticks_per_instr: 65535
+    nco_grid_ticks: 4
+    nco_min_spacing_ticks: 4
+    overlap_policy: truncate_previous
+    provenance: {verified: true}
+  - generator_id: qrm_rf0_seq0
+    port_id: qrm_rf0_out0
+    module_id: qrm_rf0                # QRM-RF module
+    sample_rate_hz: "1e9"
+    rt_granularity_ticks: 1
+    rt_min_duration_ticks: 4
+    wave_mem_samples: 16384
+    max_waveforms: 1024
+    instr_mem: 12288                  # QRM
+    max_wait_ticks_per_instr: 65535
+    nco_grid_ticks: 4
+    nco_min_spacing_ticks: 4
+    is_readout: true
+    overlap_policy: truncate_previous
+    provenance: {verified: true}
+acquisition:
+  modes: [raw_trace, integrated, discriminated]
+  max_discriminated_states: 2         # Qblox binary thresholding
+  integration_granularity_ticks: 4    # multiple of 4
+  max_square_integration_ticks: 16777212
+  max_weighted_integration_ticks: 16380
+  max_weight_sets: 32
+  min_acq_spacing_ticks: 300          # MIN_TIME_BETWEEN_ACQUISITIONS
+  internal_tof_ticks: 153             # RF modules ~153 ns
+  integration_convention: sum
+  provenance: {source_url: "https://docs.qblox.com/en/v0.14.0/cluster/q1_sequence_processor.html", verified: true}
+feedback:
+  branch_equal_duration_required: true
+  trigger_grid_ticks: 28
+  trigger_min_period_ticks: 252
+  max_condition_addresses: 15
+  latencies:
+    - {src: "*", dst: "*", payload: bit, routing: intra,  latency_ticks: 390, provenance: {verified: true}}
+    - {src: "*", dst: "*", payload: bit, routing: inter,  latency_ticks: 388, provenance: {verified: true}}
+    - {src: "*", dst: "*", payload: bit, routing: self,   latency_ticks: 160, provenance: {verified: true}}
+    - {src: "*", dst: "*", payload: iq,  routing: intra,  latency_ticks: 270, provenance: {verified: true}}

@@ -1,0 +1,164 @@
+syntax = "proto3";
+
+package qcss.v1;
+
+import "qcss/v1/common.proto";
+
+// Which physics tier the OS requests. UNSPECIFIED is treated as AUTO by the server.
+enum FidelityTier {
+  FIDELITY_TIER_UNSPECIFIED = 0;
+  FIDELITY_TIER_AUTO = 1;
+  FIDELITY_TIER_T0_SURROGATE = 2;
+  FIDELITY_TIER_T1A_STABILIZER = 3;
+  FIDELITY_TIER_T1B_STATEVECTOR = 4;
+  FIDELITY_TIER_T2_LINDBLAD = 5;
+  FIDELITY_TIER_T3_TRAJECTORY = 6;
+}
+
+// Parametric waveform shapes. UNSPECIFIED is rejected with INVALID_ARGUMENT.
+enum WaveformShape {
+  WAVEFORM_SHAPE_UNSPECIFIED = 0;
+  WAVEFORM_SHAPE_ARBITRARY = 1;
+  WAVEFORM_SHAPE_GAUSSIAN = 2;
+  WAVEFORM_SHAPE_DRAG = 3;
+  WAVEFORM_SHAPE_SQUARE = 4;
+  WAVEFORM_SHAPE_COSINE_FLATTOP = 5;
+}
+
+enum AcquisitionMode {
+  ACQUISITION_MODE_UNSPECIFIED = 0;
+  ACQUISITION_MODE_RAW_TRACE = 1;
+  ACQUISITION_MODE_INTEGRATED = 2;
+  ACQUISITION_MODE_DISCRIMINATED = 3;
+}
+
+enum ConditionOp {
+  CONDITION_OP_UNSPECIFIED = 0;
+  CONDITION_OP_EQUAL = 1;
+  CONDITION_OP_NOT_EQUAL = 2;
+  CONDITION_OP_MASK_AND = 3;
+  CONDITION_OP_MASK_OR = 4;
+  CONDITION_OP_MASK_XOR = 5;
+}
+
+message Waveform {
+  WaveformShape shape = 1;
+  NdArray samples = 2;
+  uint32 length_samples = 3;
+  optional double sigma_samples = 4;
+  optional double drag_beta_samples = 5;
+  optional uint32 rise_fall_samples = 6;
+}
+
+message Play {
+  string channel_id = 1;
+  string waveform_id = 2;
+  double amplitude = 3;
+  double phase_offset_rad = 4;
+  optional uint64 duration_ticks = 5;
+}
+
+message Wait {
+  uint64 duration_ticks = 1;
+}
+
+message ShiftPhase {
+  string frame_id = 1;
+  double delta_rad = 2;
+}
+
+message SetPhase {
+  string frame_id = 1;
+  double phase_rad = 2;
+}
+
+message ResetPhase {
+  string frame_id = 1;
+}
+
+message SetFrequency {
+  string frame_id = 1;
+  double frequency_hz = 2;
+}
+
+message Acquire {
+  string channel_id = 1;
+  uint64 integration_ticks = 2;
+  AcquisitionMode mode = 3;
+  string weights_id = 4;
+  uint32 register_index = 5;
+  string result_key = 6;
+}
+
+message Condition {
+  ConditionOp op = 1;
+  repeated uint32 register_indices = 2;
+  uint32 value = 3;
+  uint32 mask = 4;
+}
+
+message Block {
+  repeated Instruction instructions = 1;
+}
+
+message Branch {
+  Condition condition = 1;
+  Block then_block = 2;
+  Block else_block = 3;
+  uint64 duration_ticks = 4;
+  string sequencer_id = 5;
+}
+
+message Instruction {
+  uint64 start_tick = 1;
+  oneof op {
+    Play play = 2;
+    Wait wait = 3;
+    ShiftPhase shift_phase = 4;
+    SetPhase set_phase = 5;
+    ResetPhase reset_phase = 6;
+    SetFrequency set_frequency = 7;
+    Acquire acquire = 8;
+    Branch branch = 9;
+  }
+}
+
+message AmplitudeTarget {
+  uint32 instruction_index = 1;
+}
+
+message FrequencyTarget {
+  string frame_id = 1;
+}
+
+message DurationTarget {
+  string waveform_id = 1;
+}
+
+message Sweep {
+  uint32 axis = 1;
+  oneof target {
+    AmplitudeTarget amplitude = 2;
+    FrequencyTarget frequency = 3;
+    DurationTarget duration = 4;
+  }
+  NdArray values = 5;
+}
+
+message IntegrationWeights {
+  NdArray weights = 1;
+}
+
+message Job {
+  string job_key = 1;
+  map<string, Waveform> waveform_library = 2;
+  map<string, IntegrationWeights> weight_library = 3;
+  Block main = 4;
+  repeated Sweep sweeps = 5;
+  uint32 num_shots = 6;
+  optional uint64 repetition_delay_ticks = 7;
+  optional int32 priority = 8;
+  FidelityTier requested_tier = 9;
+  optional uint64 random_seed = 10;
+  optional uint64 expected_calibration_epoch = 11;
+}

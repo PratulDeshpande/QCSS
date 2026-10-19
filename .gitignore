@@ -1,0 +1,63 @@
+# ---------------------------------------------------------------------------
+# Private working material: kept on the maintainer's disk, not published.
+# ---------------------------------------------------------------------------
+/docs/
+/reports/
+/research_notes/
+/graphify-out/
+/WALKTHROUGH.md
+/.claude/
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+*.egg
+/build/
+/dist/
+/wheels/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# ---------------------------------------------------------------------------
+# Tool caches and test artefacts
+# ---------------------------------------------------------------------------
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+.pyright/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+.tox/
+.nox/
+
+# ---------------------------------------------------------------------------
+# Local configuration, secrets, editors, OS
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Simulator outputs from local runs (qcss run -o results.json)
+# ---------------------------------------------------------------------------
+/results*.json
+/job*.json
+*.sock

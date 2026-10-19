@@ -1,0 +1,74 @@
+profile_name: test_ideal_1q
+vendor: test_ideal
+clock:
+  tick_hz: "1e9"                       # 1 GHz (1 ns)
+  provenance: {note: "Noise-free test oracle profile", verified: true}
+ports:
+  - port_id: port_xy
+    kind: rf_iq
+    max_generators: 2
+    full_scale_per_path: 1.0
+    saturation_policy: warn
+    lo_frequency_hz: 5.0e9
+    provenance: {verified: true}
+  - port_id: port_ro
+    kind: rf_iq
+    max_generators: 2
+    full_scale_per_path: 1.0
+    saturation_policy: warn
+    lo_frequency_hz: 7.0e9
+    provenance: {verified: true}
+generators:
+  - generator_id: gen_xy
+    port_id: port_xy
+    module_id: ideal0
+    sample_rate_hz: "1e9"
+    rt_granularity_ticks: 1
+    rt_min_duration_ticks: 1
+    wave_granularity_samples: 1
+    wave_min_samples: 1
+    wave_mem_samples: 65536
+    max_waveforms: 1024
+    instr_mem: 65536
+    max_wait_ticks_per_instr: 1000000000
+    nco_grid_ticks: 1
+    nco_min_spacing_ticks: 0
+    overlap_policy: reject
+    provenance: {verified: true}
+  - generator_id: gen_ro
+    port_id: port_ro
+    module_id: ideal0
+    sample_rate_hz: "1e9"
+    rt_granularity_ticks: 1
+    rt_min_duration_ticks: 1
+    wave_granularity_samples: 1
+    wave_min_samples: 1
+    wave_mem_samples: 65536
+    max_waveforms: 1024
+    instr_mem: 65536
+    max_wait_ticks_per_instr: 1000000000
+    nco_grid_ticks: 1
+    nco_min_spacing_ticks: 0
+    is_readout: true
+    overlap_policy: reject
+    provenance: {verified: true}
+acquisition:
+  modes: [raw_trace, integrated, discriminated]
+  max_discriminated_states: 2
+  integration_granularity_ticks: 1
+  max_square_integration_ticks: 1000000
+  max_weighted_integration_ticks: 1000000
+  max_weight_sets: 32
+  min_acq_spacing_ticks: 1
+  internal_tof_ticks: 0
+  integration_convention: sum
+  provenance: {verified: true}
+feedback:
+  branch_equal_duration_required: true
+  trigger_grid_ticks: 1
+  trigger_min_period_ticks: 1
+  max_condition_addresses: 16
+  latencies:
+    - {src: "*", dst: "*", payload: bit, routing: self,  latency_ticks: 100, provenance: {verified: true}}
+    - {src: "*", dst: "*", payload: bit, routing: intra, latency_ticks: 100, provenance: {verified: true}}
+    - {src: "*", dst: "*", payload: bit, routing: inter, latency_ticks: 100, provenance: {verified: true}}

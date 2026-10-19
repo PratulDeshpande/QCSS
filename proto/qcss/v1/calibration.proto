@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package qcss.v1;
+
+message MixerCorrection {
+  double dc_offset_i = 1;
+  double dc_offset_q = 2;
+  double gain_ratio = 3;
+  double phase_skew_rad = 4;
+}
+
+message ExponentialStage {
+  double tau_s = 1;
+  double amplitude = 2;
+  bool enabled = 3;
+}
+
+message FluxPredistortion {
+  optional double inverse_highpass_tau_s = 1;
+  repeated ExponentialStage exponential = 2;
+  repeated double fir_coefficients = 3;
+}
+
+message QubitCalibration {
+  uint32 qubit_index = 1;
+  double drive_frequency_hz = 2;
+  double readout_frequency_hz = 3;
+  double pi_amplitude = 4;
+  uint32 pi_length_samples = 5;
+  double drag_beta_samples = 6;
+  uint64 readout_delay_ticks = 7;
+  double readout_rotation_rad = 8;
+  double readout_threshold = 9;
+  MixerCorrection drive_mixer = 10;
+  MixerCorrection readout_mixer = 11;
+  FluxPredistortion flux_predistortion = 12;
+}
+
+message CalibrationSnapshot {
+  uint64 calibration_epoch = 1;
+  repeated QubitCalibration qubits = 2;
+}

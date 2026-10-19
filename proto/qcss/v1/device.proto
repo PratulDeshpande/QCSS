@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package qcss.v1;
+
+enum ChannelKind {
+  CHANNEL_KIND_UNSPECIFIED = 0;
+  CHANNEL_KIND_DRIVE = 1;
+  CHANNEL_KIND_FLUX = 2;
+  CHANNEL_KIND_READOUT = 3;
+  CHANNEL_KIND_CROSS_RESONANCE = 4;
+}
+
+message ChannelInfo {
+  string channel_id = 1;
+  ChannelKind kind = 2;
+  string generator_id = 3;
+  string port_id = 4;
+  string frame_id = 5;
+  repeated uint32 qubits = 6;
+  double sample_rate_hz = 7;
+}
+
+message DeviceDescription {
+  string profile_name = 1;
+  string vendor = 2;
+  string tick_hz = 3;
+  repeated ChannelInfo channels = 4;
+  uint32 max_discriminated_states = 5;
+  uint64 default_repetition_delay_ticks = 6;
+}

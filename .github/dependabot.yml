@@ -1,0 +1,14 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: monthly
+    # protobuf and grpcio-tools are pinned together on purpose (see pyproject.toml).
+    ignore:
+      - dependency-name: protobuf
+      - dependency-name: grpcio-tools

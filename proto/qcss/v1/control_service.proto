@@ -1,0 +1,75 @@
+syntax = "proto3";
+
+package qcss.v1;
+
+import "qcss/v1/calibration.proto";
+import "qcss/v1/device.proto";
+import "qcss/v1/job.proto";
+import "qcss/v1/result.proto";
+
+service ControlService {
+  rpc SubmitJob(SubmitJobRequest) returns (SubmitJobResponse);
+  rpc GetJobStatus(GetJobStatusRequest) returns (GetJobStatusResponse);
+  rpc CancelJob(CancelJobRequest) returns (CancelJobResponse);
+  rpc StreamResults(StreamResultsRequest) returns (stream StreamResultsResponse);
+  rpc GetCalibration(GetCalibrationRequest) returns (GetCalibrationResponse);
+  rpc UpdateCalibration(UpdateCalibrationRequest) returns (UpdateCalibrationResponse);
+  rpc DescribeDevice(DescribeDeviceRequest) returns (DescribeDeviceResponse);
+}
+
+message SubmitJobRequest {
+  Job job = 1;
+}
+
+message SubmitJobResponse {
+  string job_id = 1;
+  uint64 calibration_epoch = 2;
+}
+
+message GetJobStatusRequest {
+  string job_id = 1;
+}
+
+message GetJobStatusResponse {
+  JobStatus status = 1;
+}
+
+message CancelJobRequest {
+  string job_id = 1;
+}
+
+message CancelJobResponse {
+  JobStatus status = 1;
+}
+
+message StreamResultsRequest {
+  string job_id = 1;
+  uint64 resume_after_sequence = 2;
+}
+
+message StreamResultsResponse {
+  ResultChunk chunk = 1;
+}
+
+message GetCalibrationRequest {
+  repeated uint32 qubit_indices = 1;
+}
+
+message GetCalibrationResponse {
+  CalibrationSnapshot snapshot = 1;
+}
+
+message UpdateCalibrationRequest {
+  CalibrationSnapshot snapshot = 1;
+  uint64 expected_epoch = 2;
+}
+
+message UpdateCalibrationResponse {
+  uint64 new_epoch = 1;
+}
+
+message DescribeDeviceRequest {}
+
+message DescribeDeviceResponse {
+  DeviceDescription device = 1;
+}

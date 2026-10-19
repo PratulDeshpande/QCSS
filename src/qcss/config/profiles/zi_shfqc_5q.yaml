@@ -1,0 +1,77 @@
+profile_name: zi_shfqc_5q
+vendor: zurich_instruments
+clock:
+  tick_hz: "2e9"                       # 2 GHz tick
+  provenance: {source_url: "https://docs.zhinst.com/shfqc_user_manual/specifications.html", verified: true}
+ports:
+  - port_id: sg_out0
+    kind: rf_iq
+    max_generators: 8
+    full_scale_per_path: 1.0
+    saturation_policy: warn
+    lo_frequency_hz: 5.0e9
+    provenance: {verified: true}
+  - port_id: qa_out0
+    kind: rf_iq
+    max_generators: 16
+    full_scale_per_path: 1.0
+    saturation_policy: warn
+    lo_frequency_hz: 7.0e9
+    provenance: {verified: true}
+generators:
+  - generator_id: sg_gen0
+    port_id: sg_out0
+    module_id: shfqc0                 # one SHFQC+ instrument: SG and QA channels
+    sample_rate_hz: "2e9"
+    rt_granularity_ticks: 16          # 16 samples granularity
+    rt_min_duration_ticks: 16         # 16 samples minimum with command table
+    wave_granularity_samples: 16
+    wave_min_samples: 16
+    wave_mem_samples: 98304           # 96 kSa per SG channel
+    max_waveforms: 1024
+    instr_mem: 32768
+    max_wait_ticks_per_instr: 1048575
+    nco_grid_ticks: 1
+    nco_min_spacing_ticks: 0
+    nco_phase_steps: 1000000000
+    nco_freq_resolution_hz: 0.1
+    nco_freq_range_hz: [-1000.0e6, 1000.0e6]
+    overlap_policy: reject
+    provenance: {source_url: "https://docs.zhinst.com/shfqc_user_manual/specifications.html", verified: true}
+  - generator_id: qa_gen0
+    port_id: qa_out0
+    module_id: shfqc0
+    sample_rate_hz: "2e9"
+    rt_granularity_ticks: 4           # 4-sample granularity on QA generator
+    rt_min_duration_ticks: 4          # 4-sample minimum on QA generator
+    wave_granularity_samples: 4
+    wave_min_samples: 4
+    wave_mem_samples: 32768           # 32 kSa total
+    max_waveforms: 1024
+    instr_mem: 16384
+    max_wait_ticks_per_instr: 1048575
+    nco_grid_ticks: 1
+    nco_min_spacing_ticks: 0
+    is_readout: true
+    overlap_policy: reject
+    provenance: {source_url: "https://docs.zhinst.com/shfqc_user_manual/specifications.html", verified: true}
+acquisition:
+  modes: [raw_trace, integrated, discriminated]
+  max_discriminated_states: 4         # ZI supports up to 4 states
+  integration_granularity_ticks: 4
+  max_square_integration_ticks: 1000000
+  max_weighted_integration_ticks: 8192 # 4 kSa at 2 GSa/s = 8192 ticks
+  max_weight_sets: 16
+  min_acq_spacing_ticks: 16
+  internal_tof_ticks: 448             # ~224 ns at 2 GHz
+  integration_convention: sum
+  provenance: {source_url: "https://docs.zhinst.com/shfqc_user_manual/functional_overview.html", verified: true}
+feedback:
+  branch_equal_duration_required: true
+  trigger_grid_ticks: 1
+  trigger_min_period_ticks: 1
+  max_condition_addresses: 16
+  latencies:
+    - {src: "*", dst: "*", payload: bit, routing: self,    latency_ticks: 700, provenance: {note: "350 ns internal @ 2 GHz", verified: true}}
+    - {src: "*", dst: "*", payload: bit, routing: intra,   latency_ticks: 700, provenance: {note: "350 ns internal @ 2 GHz", verified: true}}
+    - {src: "*", dst: "*", payload: bit, routing: inter,   latency_ticks: 1100, provenance: {note: "550 ns between instruments via PQSC @ 2 GHz", verified: true}}

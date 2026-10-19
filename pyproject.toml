@@ -1,0 +1,89 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qcss"
+version = "0.1.0"
+description = "Quantum Control Stack Simulator: a hardware-faithful emulator for testing a Quantum OS"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
+authors = [{ name = "Pratul Deshpande" }]
+keywords = ["quantum", "quantum-control", "simulator", "pulse-level", "transmon", "qblox", "grpc", "hardware-in-the-loop"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Science/Research",
+  "Intended Audience :: Developers",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+  "numpy>=2.3,<3",
+  "scipy>=1.16",
+  "qutip>=5.2,<6",
+  "stim>=1.15",
+  "pymatching>=2.3",
+  "grpcio>=1.71.2",
+  "grpcio-status>=1.71.2",
+  "grpcio-health-checking>=1.71.2",
+  "grpcio-reflection>=1.71.2",
+  "protobuf>=5.29,<6",              # generated code (grpcio-tools 1.71) and grpcio-status 1.71 both need 5.x
+  "pydantic>=2.10,<3",
+  "pyyaml>=6.0",
+  "click>=8.1",
+]
+
+[project.optional-dependencies]
+adapters = ["qcodes>=0.61", "pyvisa>=1.16", "pyvisa-sim>=0.7"]
+qibolab  = ["qibolab>=0.2.17,<0.3"]
+
+[dependency-groups]
+dev = [
+  "grpcio-tools>=1.71.2,<1.72",     # keep in step with the protobuf runtime pin; regenerate with scripts/gen_proto.py
+  "pytest>=8",
+  "anyio>=4",
+  "hypothesis>=6",
+  "pytest-xdist>=3",
+  "ruff>=0.6",
+  "pyright>=1.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/PratulDeshpande/qcss"
+Repository = "https://github.com/PratulDeshpande/qcss"
+Issues = "https://github.com/PratulDeshpande/qcss/issues"
+Changelog = "https://github.com/PratulDeshpande/qcss/blob/main/CHANGELOG.md"
+
+[project.scripts]
+qcss = "qcss.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qcss"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/proto", "/scripts", "/buf.yaml", "/README.md", "/LICENSE", "/NOTICE", "/CHANGELOG.md"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q --strict-markers"
+pythonpath = ["src", "."]
+markers = [
+  "slow: long-running physics oracles (nightly)",
+  "stochastic: statistical assertions; run with many seeds nightly",
+  "linux_only: requires Linux (JAX, PREEMPT_RT)",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = ["src/qcss/v1/*_pb2*.py", "src/qcss/v1/*_pb2*.pyi"]
+
+[tool.pyright]
+include = ["src", "tests"]
+exclude = ["src/qcss/v1/*_pb2*.py"]
+pythonVersion = "3.12"

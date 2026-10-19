@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package qcss.v1;
+
+// Element type of an NdArray payload. Little-endian, C-order.
+enum ElementType {
+  ELEMENT_TYPE_UNSPECIFIED = 0;
+  ELEMENT_TYPE_FLOAT32 = 1;
+  ELEMENT_TYPE_FLOAT64 = 2;
+  ELEMENT_TYPE_COMPLEX64 = 3;
+  ELEMENT_TYPE_COMPLEX128 = 4;
+  ELEMENT_TYPE_INT8 = 5;
+  ELEMENT_TYPE_UINT8 = 6;
+  ELEMENT_TYPE_INT32 = 7;
+  ELEMENT_TYPE_UINT64 = 8;
+}
+
+// A dense numeric array carried as raw bytes.
+message NdArray {
+  ElementType element_type = 1;
+  repeated uint32 shape = 2;
+  bytes data = 3;
+}

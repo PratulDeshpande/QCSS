@@ -1,0 +1,20 @@
+name: Feature request
+description: Suggest a capability, profile or physics model.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The OS or experiment you are testing, and what is missing.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like QCSS to do?
+  - type: textarea
+    id: sources
+    attributes:
+      label: Sources
+      description: For a hardware profile or physics change, link the datasheet, documentation or paper the numbers come from.

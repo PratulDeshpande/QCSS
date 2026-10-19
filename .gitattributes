@@ -1,0 +1,19 @@
+# Normalise line endings in the repository; check out with the platform default.
+* text=auto
+
+# Source and configuration are always LF so diffs and the proto-drift CI check are stable.
+*.py   text eol=lf
+*.pyi  text eol=lf
+*.proto text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.toml text eol=lf
+*.md   text eol=lf
+
+# Binary job files.
+*.pb binary
+
+# Generated protobuf / gRPC code: collapse in diffs and exclude from language statistics.
+src/qcss/v1/*_pb2.py        linguist-generated=true
+src/qcss/v1/*_pb2.pyi       linguist-generated=true
+src/qcss/v1/*_pb2_grpc.py   linguist-generated=true

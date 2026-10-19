@@ -1,0 +1,84 @@
+profile_name: qick_zcu216_4q
+vendor: qick
+# Example ZCU216 build from the research notes (control_hardware_constraints.md, QICK section):
+# tProc 430.08 MHz, full-speed/int4 DAC generators 6881.28 Msps, readout ADC 2457.6 Msps
+# decimated to 307.2 MHz. The tick is the LCM of all three clocks: 61.44 MHz x 560.
+# Firmware builds differ; every rate below must be checked against the bitstream in use.
+clock:
+  tick_hz: "34406.4e6"                 # 80 ticks per tProc cycle, 5 per DAC sample, 112 per decimated ADC sample
+  provenance: {source_url: "https://docs.qick.dev/latest/topics/timing.html", verified: false,
+               note: "derived from the notes' example build; firmware-specific"}
+ports:
+  - port_id: dac0
+    kind: rf_direct
+    max_generators: 1
+    full_scale_per_path: 1.0
+    saturation_policy: clip
+    lo_frequency_hz: null
+    provenance: {verified: false}
+  - port_id: dac1
+    kind: rf_direct
+    max_generators: 1
+    full_scale_per_path: 1.0
+    saturation_policy: clip
+    lo_frequency_hz: null
+    provenance: {verified: false}
+generators:
+  - generator_id: gen0
+    port_id: dac0
+    module_id: rfsoc0
+    sample_rate_hz: "6881.28e6"
+    rt_granularity_ticks: 80          # one tProc cycle (2.325 ns)
+    rt_min_duration_ticks: 80
+    wave_granularity_samples: 16      # one fabric cycle = 16 DAC samples
+    wave_min_samples: 16
+    wave_mem_samples: 65536
+    max_waveforms: 1024
+    instr_mem: 4096                   # program memory, words
+    max_wait_ticks_per_instr: 171798691840   # signed 32-bit tProc cycles x 80
+    nco_grid_ticks: 80
+    nco_min_spacing_ticks: 0
+    nco_phase_steps: 4294967296       # 32-bit phase
+    nco_freq_resolution_hz: 1.6       # 6881.28 MHz / 2^32
+    nco_freq_range_hz: [-3440.64e6, 3440.64e6]
+    overlap_policy: reject
+    provenance: {verified: false, note: "full-speed generator of the notes' example build"}
+  - generator_id: ro_gen0
+    port_id: dac1
+    module_id: rfsoc0
+    sample_rate_hz: "6881.28e6"
+    rt_granularity_ticks: 80
+    rt_min_duration_ticks: 80
+    wave_granularity_samples: 16
+    wave_min_samples: 16
+    wave_mem_samples: 65536
+    max_waveforms: 1024
+    instr_mem: 4096
+    max_wait_ticks_per_instr: 171798691840
+    nco_grid_ticks: 80
+    nco_min_spacing_ticks: 0
+    nco_phase_steps: 4294967296
+    nco_freq_resolution_hz: 1.6
+    nco_freq_range_hz: [-3440.64e6, 3440.64e6]
+    is_readout: true
+    overlap_policy: reject
+    provenance: {verified: false, note: "readout pulse generator; ADC side at 2457.6 Msps"}
+acquisition:
+  modes: [raw_trace, integrated, discriminated]
+  max_discriminated_states: 2
+  integration_granularity_ticks: 112  # one decimated ADC sample at 307.2 MHz
+  max_square_integration_ticks: 114688000
+  max_weighted_integration_ticks: 1835008   # 16384 decimated samples
+  max_weight_sets: 8
+  min_acq_spacing_ticks: 80
+  internal_tof_ticks: 3472            # ~101 ns DAC+ADC path (notes: 90-117 ns)
+  integration_convention: sum
+  provenance: {verified: false}
+feedback:
+  branch_equal_duration_required: false
+  trigger_grid_ticks: 80
+  trigger_min_period_ticks: 80
+  max_condition_addresses: 8
+  latencies:
+    - {src: "*", dst: "*", payload: bit, routing: self,  latency_ticks: 6400, provenance: {note: "~186 ns (notes: 184-211 ns)", verified: false}}
+    - {src: "*", dst: "*", payload: bit, routing: intra, latency_ticks: 6400, provenance: {note: "~186 ns (notes: 184-211 ns)", verified: false}}
