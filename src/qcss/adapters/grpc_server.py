@@ -1,9 +1,12 @@
 """grpc.aio ControlService with rich status, calibration epochs, health checking, and reflection."""
 from __future__ import annotations
 
+import hmac
 import inspect
-from collections.abc import AsyncIterator
-from typing import NoReturn, Protocol
+import ipaddress
+import logging
+from collections.abc import AsyncIterator, Awaitable, Callable
+from typing import Any, NoReturn, Protocol
 
 import grpc
 
@@ -98,19 +101,95 @@ def describe_device(profile, bindings) -> pb.DescribeDeviceResponse:
     return pb.DescribeDeviceResponse(device=desc)
 
 
+log = logging.getLogger("qcss.grpc")
+
+# Methods reachable without a token: liveness probes must work before a client has credentials.
+_PUBLIC_METHOD_PREFIXES = ("/grpc.health.v1.Health/",)
+
+
+class UnsafeBindError(ValueError):
+    """A network-reachable bind without TLS (anyone on the network could submit jobs and rewrite calibration)."""
+
+
+def check_bind_is_safe(address: str, *, tls: bool, insecure: bool) -> None:
+    """Refuse a non-loopback TCP bind without TLS unless the operator explicitly passes insecure=True."""
+    if tls or insecure or address.startswith(("unix:", "unix-abstract:")):
+        return
+    host = address.rsplit(":", 1)[0].strip("[]")
+    if host == "localhost":
+        return
+    try:
+        if ipaddress.ip_address(host).is_loopback:
+            return
+    except ValueError:
+        pass                                               # a hostname other than localhost may resolve anywhere
+    raise UnsafeBindError(f"refusing to bind {address} without TLS; pass a certificate and key, "
+                          "or --insecure on a network you trust")
+
+
+class BearerTokenInterceptor(grpc.aio.ServerInterceptor):
+    """Rejects calls without `authorization: Bearer <token>` (health checks exempt); logs the OS's trace ids."""
+
+    def __init__(self, token: str | None) -> None:
+        self._expected = f"Bearer {token}".encode() if token else None
+
+    async def intercept_service(
+        self, continuation: Callable[[grpc.HandlerCallDetails], Awaitable[grpc.RpcMethodHandler | None]],
+        handler_call_details: grpc.HandlerCallDetails,
+    ) -> grpc.RpcMethodHandler | None:
+        md = {k: v for k, v in (handler_call_details.invocation_metadata or ())}
+        method = handler_call_details.method or ""
+        job_id, trace = md.get("x-quark-job-id"), md.get("traceparent")
+        if job_id or trace:
+            log.info("rpc %s quark_job_id=%s traceparent=%s", method, job_id, trace)
+        handler = await continuation(handler_call_details)
+        if handler is None or self._expected is None or method.startswith(_PUBLIC_METHOD_PREFIXES):
+            return handler
+        got = md.get("authorization", "")
+        if hmac.compare_digest(str(got).encode(), self._expected):
+            return handler
+        return _deny(handler)
+
+
+def _deny(handler: grpc.RpcMethodHandler) -> grpc.RpcMethodHandler:
+    """A handler of the same streaming kind that ends the call with UNAUTHENTICATED."""
+    async def abort(_request: Any, context: grpc.aio.ServicerContext) -> Any:
+        await context.abort(grpc.StatusCode.UNAUTHENTICATED, "missing or invalid bearer token")
+
+    async def abort_stream(_request: Any, context: grpc.aio.ServicerContext) -> AsyncIterator[Any]:
+        await context.abort(grpc.StatusCode.UNAUTHENTICATED, "missing or invalid bearer token")
+        yield  # pragma: no cover  (makes this an async generator)
+
+    kw = {"request_deserializer": handler.request_deserializer, "response_serializer": handler.response_serializer}
+    if handler.unary_unary:
+        return grpc.unary_unary_rpc_method_handler(abort, **kw)
+    if handler.unary_stream:
+        return grpc.unary_stream_rpc_method_handler(abort_stream, **kw)
+    if handler.stream_unary:
+        return grpc.stream_unary_rpc_method_handler(abort, **kw)
+    return grpc.stream_stream_rpc_method_handler(abort_stream, **kw)
+
+
 async def serve(
     address: str, jobs: JobManager, device: pb.DescribeDeviceResponse | None = None,
-    calibration: CalibrationStore | None = None,
+    calibration: CalibrationStore | None = None, *,
+    tls: tuple[bytes, bytes] | None = None, token: str | None = None,
 ) -> grpc.aio.Server:
     """address: 'unix:C:/.../qcss.sock' (Windows 10+) or '127.0.0.1:50051'.
-    Never bind 0.0.0.0 without TLS.
+    tls: PEM (certificate chain, private key); token: required as `authorization: Bearer <token>`.
+    Never bind 0.0.0.0 without TLS (see check_bind_is_safe).
     """
     device_desc = device if device is not None else pb.DescribeDeviceResponse()
     server = grpc.aio.server(
+        interceptors=[BearerTokenInterceptor(token)],
         options=[
             ("grpc.max_send_message_length", 16 << 20),
             ("grpc.max_receive_message_length", 16 << 20),
-        ]
+            # Clients may ping idle connections every 20 s or more; tighter pings get GOAWAY too_many_pings.
+            ("grpc.keepalive_permit_without_calls", 1),
+            ("grpc.http2.min_ping_interval_without_data_ms", 10_000),
+            ("grpc.http2.max_pings_without_data", 0),
+        ],
     )
     pbg.add_ControlServiceServicer_to_server(ControlService(jobs, device_desc, calibration), server)
     service_name = pb.DESCRIPTOR.services_by_name["ControlService"].full_name
@@ -137,7 +216,10 @@ async def serve(
     except ImportError:
         pass
 
-    port = server.add_insecure_port(address)
+    if tls is not None:
+        port = server.add_secure_port(address, grpc.ssl_server_credentials([(tls[1], tls[0])]))
+    else:
+        port = server.add_insecure_port(address)
     if port == 0:
         raise RuntimeError(f"could not bind address {address}")
     await server.start()

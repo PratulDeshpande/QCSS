@@ -13,7 +13,7 @@ import numpy as np
 import yaml
 from google.protobuf import json_format
 
-from qcss.adapters.grpc_server import describe_device, serve
+from qcss.adapters.grpc_server import UnsafeBindError, check_bind_is_safe, describe_device, serve
 from qcss.config.loader import get_unverified_fields, load_device, load_profile
 from qcss.core.errors import HardwareValidationError, TierRoutingError
 from qcss.core.ndarray import from_proto
@@ -327,22 +327,37 @@ def run(job_path: str, profile: str, device: str | None, shots: int | None, tier
 @click.option("--device", default=None, help="Device specification path or name")
 @click.option("--workers", type=int, default=0, help="Spawn worker processes for simulation (0 = one thread)")
 @click.option("--seed", type=int, default=0, help="Global seed of the server's random-stream tree")
-def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: str | None, workers: int, seed: int):
+@click.option("--tls-cert", type=click.Path(dir_okay=False), default=None, help="PEM server certificate (chain)")
+@click.option("--tls-key", type=click.Path(dir_okay=False), default=None, help="PEM private key of --tls-cert")
+@click.option("--token", envvar="QCSS_TOKEN", default=None,
+              help="Require 'authorization: Bearer <token>' on every call (env QCSS_TOKEN)")
+@click.option("--insecure", is_flag=True, help="Allow a network bind without TLS (trusted networks only)")
+def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: str | None, workers: int, seed: int,
+              tls_cert: str | None, tls_key: str | None, token: str | None, insecure: bool):
     """Launch the QCSS gRPC ControlService server."""
+    addr = listen or f"{host}:{port}"
+    if (tls_cert is None) != (tls_key is None):
+        raise click.UsageError("pass both --tls-cert and --tls-key, or neither")
+    try:
+        check_bind_is_safe(addr, tls=tls_cert is not None, insecure=insecure)
+    except UnsafeBindError as err:
+        raise click.UsageError(str(err)) from err
+    tls = (pathlib.Path(tls_cert).read_bytes(), pathlib.Path(tls_key).read_bytes()) if tls_cert and tls_key else None
+
     p_path = _resolve_profile_path(profile)
     prof = load_profile(p_path)
     d_path = _resolve_device_path(device)
     dev = load_device(d_path) if d_path else None
     tb = TimeBase.from_clocks(prof.clock.tick_hz)
 
-    addr = listen or f"{host}:{port}"
-    click.echo(f"Starting QCSS ControlService on {addr} with profile '{prof.profile_name}'...")
+    security = ("TLS" if tls else "plaintext") + (", token required" if token else ", no token")
+    click.echo(f"Starting QCSS ControlService on {addr} ({security}) with profile '{prof.profile_name}'...")
 
     async def run_server():
         ctx = SimulationContext(prof, dev, tb, global_seed=seed)
         runner = create_simulation_runner(prof, dev, tb, context=ctx, workers=workers)
         jobs = JobManager(runner, create_simulation_validator(prof, tb, dev, context=ctx))
-        server = await serve(addr, jobs, describe_device(prof, ctx.bindings), ctx.calibration)
+        server = await serve(addr, jobs, describe_device(prof, ctx.bindings), ctx.calibration, tls=tls, token=token)
         click.secho(f"QCSS ControlService listening on {addr}. Press Ctrl+C to terminate.", fg="green")
         try:
             await server.wait_for_termination()

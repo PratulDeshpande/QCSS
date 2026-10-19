@@ -25,9 +25,12 @@ in the advisory unless they prefer otherwise.
 QCSS is a **local development and test tool**, not a hardened network service. Please keep these in
 mind before reporting them as vulnerabilities:
 
-* **No authentication or TLS.** The gRPC server (`qcss serve`) binds to `127.0.0.1` by default. Anyone
-  who can reach the port can submit jobs and overwrite the calibration. Do not expose it on an
-  untrusted network; do not bind `0.0.0.0` without a TLS-terminating proxy you control.
+* **Authentication and TLS are opt-in.** The gRPC server (`qcss serve`) binds to `127.0.0.1` by
+  default, without TLS or a token. For LAN use pass `--tls-cert`/`--tls-key` and `--token` (or
+  `QCSS_TOKEN`): every call except the gRPC health check then needs `authorization: Bearer <token>`.
+  `qcss serve` refuses a non-loopback bind without TLS unless `--insecure` is given. There is one
+  shared token and no per-user access control: anyone holding it can submit jobs and overwrite the
+  calibration. See [docs/remote-testing.md](docs/remote-testing.md).
 * **Untrusted input is protobuf only.** The server never unpickles network data. `pickle` is used
   solely for parent-to-child process communication inside the server's own worker pool.
 * **Resource limits are modest.** Messages are capped at 16 MiB, result queues are bounded, and

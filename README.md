@@ -124,8 +124,14 @@ The server implements `qcss.v1.ControlService` (`SubmitJob`, `GetJobStatus`, `Ca
 `StreamResults`, `GetCalibration`, `UpdateCalibration`, `DescribeDevice`), answers the standard
 gRPC health check, and supports server reflection, so `grpcurl` can explore it.
 
-> **Security.** The server has no authentication or TLS. It binds to loopback by default. Never bind
-> `0.0.0.0` on an untrusted network. See [SECURITY.md](SECURITY.md).
+> **Security.** The server binds to loopback by default. To reach it from another machine, serve with
+> TLS and a token; `qcss serve` refuses a network bind without TLS unless you pass `--insecure`:
+>
+> ```bash
+> qcss serve --host 192.168.1.20 --tls-cert server.pem --tls-key server.key --token "$QCSS_TOKEN"
+> ```
+>
+> See [docs/remote-testing.md](docs/remote-testing.md) and [SECURITY.md](SECURITY.md).
 
 ### Calibration against hidden impairments
 
@@ -188,7 +194,7 @@ started.
 * Vendor adapters (Qibolab, Qblox face, QCoDeS) are not built yet.
 * Profile numbers marked `verified: false` are calibration parameters, not facts; the QICK profile
   follows one example firmware build.
-* No authentication or TLS on the gRPC endpoint.
+* One shared bearer token; no per-user accounts or mutual TLS on the gRPC endpoint.
 
 ## License
 
