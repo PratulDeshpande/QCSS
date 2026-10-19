@@ -5,7 +5,7 @@ Run it on the client laptop:
     python scripts/remote_smoke.py --target 192.168.1.20:50051 --ca server.pem --token "$QCSS_TOKEN"
 
 Every step prints PASS or FAIL with its time and the evidence. The exit code is 0 only if every
-step passes. --report writes the same results as JSON for the test log in docs/remote-testing.md.
+step passes. --report writes the same results as JSON for a test log.
 The jobs use qubit 0's xy_q0 and ro_q0 channels, which every shipped profile with a device has.
 """
 from __future__ import annotations

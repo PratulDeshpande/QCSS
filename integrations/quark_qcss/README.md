@@ -1,9 +1,8 @@
 # quark-qcss
 
-Reference Layer-7 driver for Quark-QOS (see `reports/high-level-design.md` §5.7): a `DeviceProvider`
+Reference Layer-7 driver for Quark-QOS (HLD §5.7): a `DeviceProvider`
 (HAL) and an `ExecutionDriver` that talk to any server implementing `qcss.v1.ControlService`, which is
-QCSS today and a lab's control-stack gateway later. The full design is in
-[docs/hal-driver-design.md](../../docs/hal-driver-design.md).
+QCSS today and a lab's control-stack gateway later.
 
 | Module | Role |
 | --- | --- |

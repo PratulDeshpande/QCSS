@@ -131,7 +131,8 @@ gRPC health check, and supports server reflection, so `grpcurl` can explore it.
 > qcss serve --host 192.168.1.20 --tls-cert server.pem --tls-key server.key --token "$QCSS_TOKEN"
 > ```
 >
-> See [docs/remote-testing.md](docs/remote-testing.md) and [SECURITY.md](SECURITY.md).
+> `scripts/make_dev_cert.py <ip>` makes a self-signed certificate; `qcss remote ping|describe|run` and
+> `scripts/remote_smoke.py` test the server from another machine. See [SECURITY.md](SECURITY.md).
 
 ### Calibration against hidden impairments
 

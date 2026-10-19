@@ -30,7 +30,7 @@ mind before reporting them as vulnerabilities:
   `QCSS_TOKEN`): every call except the gRPC health check then needs `authorization: Bearer <token>`.
   `qcss serve` refuses a non-loopback bind without TLS and a token unless `--insecure` is given. There is one
   shared token and no per-user access control: anyone holding it can submit jobs and overwrite the
-  calibration. See [docs/remote-testing.md](docs/remote-testing.md).
+  calibration.
 * **Untrusted input is protobuf only.** The server never unpickles network data. `pickle` is used
   solely for parent-to-child process communication inside the server's own worker pool.
 * **Resource limits are modest.** Messages are capped at 16 MiB and hardware-rule checks reject
