@@ -3,14 +3,15 @@
     python scripts/make_dev_cert.py 192.168.1.20            # the server laptop's LAN address(es)
 
 Writes server.pem (give a copy to every client: it is what they trust) and server.key (keep it on
-the server). The certificate also names localhost and 127.0.0.1, is valid for 365 days, and needs
-the `cryptography` package (python -m pip install cryptography).
+the server; on Linux/macOS it is created owner-only). The certificate also names localhost and
+127.0.0.1, is valid for 365 days, and needs the `cryptography` package (python -m pip install cryptography).
 """
 from __future__ import annotations
 
 import argparse
 import datetime
 import ipaddress
+import os
 import pathlib
 import sys
 
@@ -25,7 +26,12 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("names", nargs="+", help="IP addresses and/or host names clients will use to reach the server")
     ap.add_argument("--out", type=pathlib.Path, default=pathlib.Path("."), help="output directory")
     ap.add_argument("--days", type=int, default=365)
+    ap.add_argument("--force", action="store_true", help="overwrite an existing server.key")
     args = ap.parse_args(argv)
+    key_path = args.out / "server.key"
+    if key_path.exists() and not args.force:
+        print(f"error: {key_path} exists; pass --force to replace it (clients must then get the new server.pem)")
+        return 1
 
     alt: list[x509.GeneralName] = [x509.DNSName("localhost"), x509.IPAddress(ipaddress.ip_address("127.0.0.1"))]
     for name in args.names:
@@ -47,9 +53,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "server.pem").write_bytes(cert.public_bytes(serialization.Encoding.PEM))
-    (args.out / "server.key").write_bytes(key.private_bytes(serialization.Encoding.PEM,
-                                                            serialization.PrivateFormat.PKCS8,
-                                                            serialization.NoEncryption()))
+    key_path.unlink(missing_ok=True)
+    fd = os.open(key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)     # owner-only from creation (POSIX)
+    with os.fdopen(fd, "wb") as f:
+        f.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                  serialization.NoEncryption()))
     print(f"wrote {args.out / 'server.pem'} (copy to clients) and {args.out / 'server.key'} (keep private)")
     print("valid for: " + ", ".join(str(n.value) for n in alt))
     return 0
