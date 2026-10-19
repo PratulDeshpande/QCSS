@@ -8,12 +8,19 @@
 grid_ticks: 4                     # every start tick is a multiple of this (Qblox NCO grid is 4 ns)
 min_acquire_spacing_ticks: 300    # Qblox MIN_TIME_BETWEEN_ACQUISITIONS on one readout sequencer
 
-qubits:                           # physical qubit -> channels, frame, readout sequencer (DescribeDevice generator_id)
-  0: {drive: xy_q0, frame: q0, readout: ro_q0, flux: flux_q0, readout_sequencer: qrm_rf0_seq0}
-  1: {drive: xy_q1, frame: q1, readout: ro_q1, flux: flux_q1, readout_sequencer: qrm_rf0_seq0}
-  2: {drive: xy_q2, frame: q2, readout: ro_q2, flux: flux_q2, readout_sequencer: qrm_rf0_seq0}
-  3: {drive: xy_q3, frame: q3, readout: ro_q3, flux: flux_q3, readout_sequencer: qrm_rf0_seq0}
-  4: {drive: xy_q4, frame: q4, readout: ro_q4, flux: flux_q4, readout_sequencer: qrm_rf0_seq0}
+# physical qubit -> channels, frame and sequencers (DescribeDevice generator_id). On qblox_cluster_5q every
+# drive channel shares one sequencer and every readout channel another, so their pulses are serialised.
+qubits:
+  0: {drive: xy_q0, frame: q0, readout: ro_q0, flux: flux_q0,
+      drive_sequencer: qcm_rf0_seq0, readout_sequencer: qrm_rf0_seq0}
+  1: {drive: xy_q1, frame: q1, readout: ro_q1, flux: flux_q1,
+      drive_sequencer: qcm_rf0_seq0, readout_sequencer: qrm_rf0_seq0}
+  2: {drive: xy_q2, frame: q2, readout: ro_q2, flux: flux_q2,
+      drive_sequencer: qcm_rf0_seq0, readout_sequencer: qrm_rf0_seq0}
+  3: {drive: xy_q3, frame: q3, readout: ro_q3, flux: flux_q3,
+      drive_sequencer: qcm_rf0_seq0, readout_sequencer: qrm_rf0_seq0}
+  4: {drive: xy_q4, frame: q4, readout: ro_q4, flux: flux_q4,
+      drive_sequencer: qcm_rf0_seq0, readout_sequencer: qrm_rf0_seq0}
 
 single_qubit:                     # used while the live calibration has no pi pulse for the qubit
   shape: square
@@ -26,6 +33,6 @@ readout:
 
 # Two-qubit gates, keyed "a-b" with a < b. Empty until the lab calibrates a CZ flux pulse for a pair;
 # the translator refuses `cz` on any pair not listed here. Example of an entry:
-#   "0-1": {channel: flux_q0, shape: square, length_samples: 60, amplitude: 0.3,
+#   "0-1": {channel: flux_q0, sequencer: qcm_flux_seq0, shape: square, length_samples: 60, amplitude: 0.3,
 #           phase_corrections: {0: 0.0, 1: 0.0}}
 two_qubit: {}

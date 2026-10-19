@@ -95,8 +95,16 @@ def test_barrier_aligns_qubits(tr):
     assert ops(t.job) == [(0, "play", "xy_q0"), (20, "play", "xy_q1")]
 
 
-def test_parallel_gates_on_different_qubits_start_together(tr):
-    t = tr.translate("x $0;\nx $1;", None, shots=1)
+def test_gates_sharing_a_drive_sequencer_are_serialised(tr):
+    t = tr.translate("rz(0.3) $0;\nrz(0.3) $1;\nx $0;\nx $1;", None, shots=1)
+    assert ops(t.job) == [(0, "shift_phase", "q0"), (0, "play", "xy_q0"),
+                          (20, "shift_phase", "q1"), (20, "play", "xy_q1")]
+
+
+def test_gates_on_separate_sequencers_start_together():
+    data = load_pulse_library(LIB).model_dump()
+    data["qubits"][1]["drive_sequencer"] = "qcm_rf1_seq0"
+    t = Translator(PulseLibrary.model_validate(data)).translate("x $0;\nx $1;", None, shots=1)
     assert [s for s, _, _ in ops(t.job)] == [0, 0]
 
 
@@ -133,7 +141,7 @@ def test_cz_uses_the_calibrated_flux_pulse_and_phase_corrections():
     lib = PulseLibrary.model_validate(data)
     t = Translator(lib).translate("x $1;\ncz $0, $1;\nx $0;\nx $1;", None, shots=1)
     assert ops(t.job) == [(0, "play", "xy_q1"), (20, "play", "flux_q0"), (80, "shift_phase", "q0"),
-                          (80, "play", "xy_q0"), (80, "shift_phase", "q1"), (80, "play", "xy_q1")]
+                          (80, "play", "xy_q0"), (100, "shift_phase", "q1"), (100, "play", "xy_q1")]
     assert t.job.main.instructions[2].shift_phase.delta_rad == pytest.approx(-0.1)
     assert t.job.main.instructions[4].shift_phase.delta_rad == pytest.approx(0.2)
 

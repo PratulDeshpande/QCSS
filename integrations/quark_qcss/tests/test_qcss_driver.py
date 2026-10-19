@@ -153,3 +153,9 @@ def test_a_crashing_lab_translator_fails_the_job_not_the_worker(client):
     d = QcssExecutionDriver(client, Broken())  # type: ignore[arg-type]
     with pytest.raises(PermanentDriverError, match="lab translator failed: KeyError"):
         d.submit(native("x $0;"))
+
+
+def test_simultaneous_gates_on_a_shared_drive_sequencer_run(driver):
+    h = driver.submit(native("bit[2] c;\nrz(0.3) $0;\nrz(0.3) $1;\nx $0;\nx $1;\nc[0] = measure $0;\nc[1] = measure $1;"))
+    r = driver.result(h)
+    assert r.counts.get("11", 0) > 150

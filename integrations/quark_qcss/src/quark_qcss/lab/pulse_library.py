@@ -16,6 +16,7 @@ class QubitChannels(BaseModel):
     frame: str
     readout: str
     flux: str | None = None
+    drive_sequencer: str | None = None       # plays and frame shifts on one sequencer are serialised
     readout_sequencer: str | None = None     # acquisitions on one sequencer must be spaced
 
 
@@ -37,6 +38,7 @@ class TwoQubitPulse(BaseModel):
     """A calibrated CZ: one flux pulse plus the single-qubit phase corrections that follow it."""
     model_config = ConfigDict(frozen=True, extra="forbid")
     channel: str
+    sequencer: str | None = None              # pulses on one sequencer are serialised
     shape: Shape = "square"
     length_samples: int = Field(gt=0)
     amplitude: float = Field(ge=-1, le=1)

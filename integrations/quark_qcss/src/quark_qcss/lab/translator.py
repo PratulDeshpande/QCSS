@@ -13,7 +13,8 @@ native-gate program; the lab side decides the pulses. Rules:
 * measure -> a discriminated Acquire on the readout channel, result_key "<creg>[<i>]".
 * barrier -> the listed qubits (all, if none listed) wait for the latest of them.
 
-Scheduling is as-soon-as-possible per qubit; every start tick is on the library's grid.
+Scheduling is as-soon-as-possible per qubit and per sequencer (a sequencer plays one pulse at a time,
+so gates on qubits sharing one are serialised); every start tick is on the library's grid.
 """
 from __future__ import annotations
 
@@ -66,6 +67,7 @@ class Translator:
         cal = {q.qubit_index: q for q in calibration.qubits} if calibration is not None else {}
 
         cursor: dict[int, int] = {}
+        seq_free: dict[str, int] = {}                          # first free tick per sequencer
         pending: dict[int, float] = {}                         # accumulated virtual-Z per qubit (frame shift)
         acquires: dict[str, list[int]] = {}                  # start ticks per readout sequencer
         written: set[tuple[str, int]] = set()
@@ -128,10 +130,11 @@ class Translator:
                     d = self.lib.single_qubit
                     wid, length, amp = f"pi_default_{d.shape}{d.length_samples}", d.length_samples, d.pi_amplitude
                     waveform(wid, d.shape, length, d.drag_beta_samples)
-                t = self._align(cursor.get(q, 0))
+                seq = ch.drive_sequencer or ch.drive
+                t = self._align(max(cursor.get(q, 0), seq_free.get(seq, 0)))
                 flush_phase(q, t)
                 play(t, ch.drive, wid, amp if op.name == "x" else amp / 2)
-                cursor[q] = t + self._align(length)
+                cursor[q] = seq_free[seq] = t + self._align(length)
             elif op.name == "rz":
                 (q,) = op.qubits
                 chan(q, op)
@@ -144,11 +147,12 @@ class Translator:
                 if spec is None:
                     raise UnsupportedProgramError(f"line {op.line}: cz on qubits {(a, b)} is not calibrated in "
                                                   "the pulse library (two_qubit)")
-                t = self._align(max(cursor.get(a, 0), cursor.get(b, 0)))
+                seq = spec.sequencer or spec.channel
+                t = self._align(max(cursor.get(a, 0), cursor.get(b, 0), seq_free.get(seq, 0)))
                 wid = f"cz_{min(a, b)}_{max(a, b)}"
                 waveform(wid, spec.shape, spec.length_samples)
                 play(t, spec.channel, wid, spec.amplitude)
-                cursor[a] = cursor[b] = t + self._align(spec.length_samples)
+                cursor[a] = cursor[b] = seq_free[seq] = t + self._align(spec.length_samples)
                 for q, corr in spec.phase_corrections.items():
                     pending[q] = pending.get(q, 0.0) - corr
             elif op.name == "measure":

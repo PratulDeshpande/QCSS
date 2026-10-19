@@ -8,7 +8,7 @@ The same checks run against QCSS now and against a lab's control-stack gateway l
 
 L1  describe() is well formed; calibration events cover every site; a second poll only reports changes
 L3  submit -> status -> result round trip; x reads 1, idle reads 0, sx.sx = x, sx.rz(pi).sx = identity;
-    unsupported programs are refused before submission; cancel
+    gates and readout on two qubits at once; unsupported programs are refused before submission; cancel
 L4  health; a stale calibration epoch is classified for re-planning; request_calibration answers
 """
 from __future__ import annotations
@@ -114,6 +114,15 @@ def run_conformance(provider: QcssDeviceProvider, driver: QcssExecutionDriver, *
         assert frac(c2, "0") >= MIN_FRACTION, f"sx.rz(pi).sx should read 0: {c2}"
         return f"sx.sx {c1}; sx.rz(pi).sx {c2}"
 
+    def l3_two_qubits() -> str:
+        if len(site_ids) < 2:
+            return "skipped: fewer than two sites"
+        a, b = site_ids[0], site_ids[1]
+        c = run(f"OPENQASM 3.0;\nbit[2] c;\nrz(0.3) ${a};\nrz(0.3) ${b};\nx ${a};\nx ${b};\n"
+                f"c[0] = measure ${a};\nc[1] = measure ${b};")
+        assert frac(c, "11") >= MIN_FRACTION * MIN_FRACTION, f"x on two qubits should read 11: {c}"
+        return f"x on q{a}, q{b}: {c}"
+
     def l3_refuse() -> str:
         try:
             driver.submit(NativeJob(job_id="conformance", program="h $0;", shots=1))
@@ -137,6 +146,7 @@ def run_conformance(provider: QcssDeviceProvider, driver: QcssExecutionDriver, *
     check("L3", "x reads 1", l3_x)
     check("L3", "idle reads 0", l3_idle)
     check("L3", "virtual Z (sx.rz(pi).sx)", l3_virtual_z)
+    check("L3", "simultaneous gates and readout on two qubits", l3_two_qubits)
     check("L3", "non-native program refused", l3_refuse)
     check("L3", "cancel", l3_cancel)
 
