@@ -150,8 +150,8 @@ class JobManager:
                 _, _, job_id = await self._queue.get()
             except asyncio.CancelledError:
                 break
-            rec = self._jobs[job_id]
-            if rec.cancel.is_set():
+            rec = self._jobs.get(job_id)          # a job cancelled while queued may already be evicted
+            if rec is None or rec.cancel.is_set() or rec.finished.is_set():
                 continue
             rec.status.state = result_pb2.JOB_STATE_RUNNING
             rec.status.started_at.CopyFrom(_now())

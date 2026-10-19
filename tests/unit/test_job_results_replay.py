@@ -101,3 +101,22 @@ async def test_resumed_reader_does_not_count_skipped_chunks_as_delivered():
         assert [c.sequence_number async for c in jobs.results(job_id, resume_after_sequence=2)] == [3, 4, 5]
     finally:
         await jobs.close()
+
+
+async def slow_one_chunk(job_id: str, job: job_pb2.Job, cancel: asyncio.Event):
+    await asyncio.sleep(0.2)
+    yield result_pb2.ResultChunk(job_id=job_id, sequence_number=1, is_last=True)
+
+
+async def test_evicting_a_job_cancelled_while_queued_does_not_kill_the_worker():
+    jobs = JobManager(slow_one_chunk, validator, max_concurrent_jobs=1, max_retained_jobs=1)
+    try:
+        await jobs.submit(job_pb2.Job(num_shots=1))                    # occupies the only worker
+        queued = [await jobs.submit(job_pb2.Job(num_shots=1)) for _ in range(2)]
+        for job_id in queued:                                          # finished before start; the first is evicted
+            jobs.cancel(job_id)
+        last = await jobs.submit(job_pb2.Job(num_shots=1))
+        assert [c.sequence_number async for c in jobs.results(last)] == [1]
+        assert jobs.status(last).state == result_pb2.JOB_STATE_COMPLETED
+    finally:
+        await jobs.close()
