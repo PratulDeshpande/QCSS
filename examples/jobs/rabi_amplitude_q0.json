@@ -1,0 +1,43 @@
+{
+  "jobKey": "rabi_amplitude_q0",
+  "waveformLibrary": {
+    "pi": {
+      "shape": "WAVEFORM_SHAPE_SQUARE",
+      "lengthSamples": 20
+    }
+  },
+  "main": {
+    "instructions": [
+      {
+        "play": {
+          "channelId": "xy_q0",
+          "waveformId": "pi"
+        }
+      },
+      {
+        "startTick": "24",
+        "acquire": {
+          "channelId": "ro_q0",
+          "integrationTicks": "1000",
+          "mode": "ACQUISITION_MODE_DISCRIMINATED",
+          "resultKey": "q0"
+        }
+      }
+    ]
+  },
+  "sweeps": [
+    {
+      "amplitude": {},
+      "values": {
+        "elementType": "ELEMENT_TYPE_FLOAT64",
+        "shape": [
+          11
+        ],
+        "data": "AAAAAAAAAACamZmZmZm5P5qZmZmZmck/NDMzMzMz0z+amZmZmZnZPwAAAAAAAOA/NDMzMzMz4z9nZmZmZmbmP5qZmZmZmek/zczMzMzM7D8AAAAAAADwPw=="
+      }
+    }
+  ],
+  "numShots": 500,
+  "requestedTier": "FIDELITY_TIER_T1B_STATEVECTOR",
+  "randomSeed": "7"
+}

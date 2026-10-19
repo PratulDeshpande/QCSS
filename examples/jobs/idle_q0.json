@@ -1,0 +1,25 @@
+{
+  "jobKey": "idle_q0",
+  "waveformLibrary": {
+    "pi": {
+      "shape": "WAVEFORM_SHAPE_SQUARE",
+      "lengthSamples": 20
+    }
+  },
+  "main": {
+    "instructions": [
+      {
+        "startTick": "24",
+        "acquire": {
+          "channelId": "ro_q0",
+          "integrationTicks": "1000",
+          "mode": "ACQUISITION_MODE_DISCRIMINATED",
+          "resultKey": "q0"
+        }
+      }
+    ]
+  },
+  "numShots": 1000,
+  "requestedTier": "FIDELITY_TIER_T1B_STATEVECTOR",
+  "randomSeed": "7"
+}

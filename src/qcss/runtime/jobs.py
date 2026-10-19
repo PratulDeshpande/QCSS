@@ -35,10 +35,14 @@ class _JobRecord:
     job_id: str
     job: job_pb2.Job
     status: result_pb2.JobStatus
-    results: asyncio.Queue                # bounded -> backpressure on the producer
     cancel: asyncio.Event = field(default_factory=asyncio.Event)
     finished: asyncio.Event = field(default_factory=asyncio.Event)
     info: Any = None
+    # Every chunk is kept, so a client can reconnect and resume (StreamResults any number of times).
+    # Backpressure: the producer runs at most max_buffered_chunks ahead of the furthest reader.
+    chunks: list[result_pb2.ResultChunk] = field(default_factory=list)
+    delivered: int = 0                    # chunks the furthest reader has taken
+    changed: asyncio.Condition = field(default_factory=asyncio.Condition)
 
 
 class JobManager:
@@ -59,7 +63,7 @@ class JobManager:
         if info is not None:
             st.tier_used = info.tier_used
             st.noise_fidelity = info.noise_fidelity
-        rec = _JobRecord(job_id, job, st, asyncio.Queue(maxsize=self._max_buf), info=info)
+        rec = _JobRecord(job_id, job, st, info=info)
         self._jobs[job_id] = rec
         prio = job.priority if job.HasField("priority") else 0
         # PriorityQueue is min-first: negate so a higher priority runs sooner; seq breaks ties
@@ -81,15 +85,32 @@ class JobManager:
         rec.cancel.set()
         if rec.status.state == result_pb2.JOB_STATE_QUEUED:
             self._finish(rec, result_pb2.JOB_STATE_CANCELLED, "cancelled before start")
+        else:
+            self._wake(rec)                       # a producer blocked on backpressure re-checks cancel
         return rec.status
 
     async def results(self, job_id: str) -> AsyncIterator[result_pb2.ResultChunk]:
+        """All chunks of the job from the first, then live ones until it finishes."""
         rec = self._jobs[job_id]
+        i = 0
         while True:
-            chunk = await rec.results.get()
-            if chunk is None:
-                return
+            async with rec.changed:
+                await rec.changed.wait_for(lambda i=i: i < len(rec.chunks) or rec.finished.is_set())
+                if i >= len(rec.chunks):
+                    return
+                chunk = rec.chunks[i]
+                i += 1
+                if i > rec.delivered:
+                    rec.delivered = i
+                    rec.changed.notify_all()
             yield chunk
+
+    @staticmethod
+    def _wake(rec: _JobRecord) -> None:
+        async def notify() -> None:
+            async with rec.changed:
+                rec.changed.notify_all()
+        asyncio.get_running_loop().create_task(notify())
 
     def _finish(self, rec: _JobRecord, state: result_pb2.JobState, msg: str = "") -> None:
         if rec.finished.is_set():
@@ -98,10 +119,7 @@ class JobManager:
         rec.status.message = msg
         rec.status.finished_at.CopyFrom(_now())
         rec.finished.set()
-        try:
-            rec.results.put_nowait(None)          # end-of-stream sentinel
-        except asyncio.QueueFull:
-            asyncio.get_running_loop().create_task(rec.results.put(None))
+        self._wake(rec)                           # readers waiting for more chunks see the end
 
     async def _dispatch_loop(self) -> None:
         while True:
@@ -116,9 +134,13 @@ class JobManager:
             rec.status.started_at.CopyFrom(_now())
             try:
                 async for chunk in self._runner(job_id, rec.job, rec.cancel):
-                    await rec.results.put(chunk)  # blocks when client is slow (backpressure)
-                    if rec.cancel.is_set():
-                        break
+                    async with rec.changed:       # blocks when every client is slow (backpressure)
+                        await rec.changed.wait_for(
+                            lambda rec=rec: len(rec.chunks) - rec.delivered < self._max_buf or rec.cancel.is_set())
+                        if rec.cancel.is_set():
+                            break
+                        rec.chunks.append(chunk)
+                        rec.changed.notify_all()
                 self._finish(rec, result_pb2.JOB_STATE_CANCELLED if rec.cancel.is_set()
                              else result_pb2.JOB_STATE_COMPLETED)
             except Exception as exc:              # noqa: BLE001

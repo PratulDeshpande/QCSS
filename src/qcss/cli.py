@@ -374,5 +374,161 @@ def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: st
         click.echo("\nServer terminated by user.")
 
 
+# ---------------------------------------------------------------------- remote client
+@app.group("remote")
+def remote():
+    """Talk to a running QCSS server (this machine or another one on the network)."""
+
+
+def _remote_options(f):
+    f = click.option("--target", "-t", default="127.0.0.1:50051", show_default=True,
+                     help="host:port of the server")(f)
+    f = click.option("--ca", type=click.Path(exists=True, dir_okay=False), default=None,
+                     help="PEM certificate to trust (the server's self-signed cert or its CA); enables TLS")(f)
+    f = click.option("--token", envvar="QCSS_TOKEN", default=None, help="Bearer token (env QCSS_TOKEN)")(f)
+    return click.option("--timeout", type=float, default=30.0, show_default=True, help="Per-call timeout, s")(f)
+
+
+def _client(target: str, ca: str | None, token: str | None, timeout: float):
+    from qcss.client import QcssClient
+    return QcssClient(target, tls_ca=pathlib.Path(ca).read_bytes() if ca else None, token=token, timeout_s=timeout)
+
+
+def _fail(err: Exception) -> None:
+    from qcss.client import QcssRpcError
+    if isinstance(err, QcssRpcError):
+        click.secho(f"Error {err.code.name}: {err.message}", fg="red")
+        for path, desc in err.field_violations:
+            click.echo(f"  * {path}: {desc}")
+        for kind, subject, desc in err.precondition_failures:
+            click.echo(f"  * {kind} ({subject}): {desc}")
+    else:
+        click.secho(f"Error: {err}", fg="red")
+    sys.exit(1)
+
+
+@remote.command("ping")
+@_remote_options
+def remote_ping(target: str, ca: str | None, token: str | None, timeout: float):
+    """Check that the server is reachable and healthy (gRPC health check)."""
+    t0 = time.perf_counter()
+    try:
+        with _client(target, ca, token, timeout) as c:
+            ok = c.health()
+    except Exception as err:  # noqa: BLE001
+        _fail(err)
+        return
+    click.echo(f"{target}: {'SERVING' if ok else 'NOT SERVING'} ({(time.perf_counter() - t0) * 1e3:.1f} ms)")
+    sys.exit(0 if ok else 1)
+
+
+@remote.command("describe")
+@_remote_options
+def remote_describe(target: str, ca: str | None, token: str | None, timeout: float):
+    """Show the instrument profile and the channels the server offers."""
+    from qcss.v1 import device_pb2
+    try:
+        with _client(target, ca, token, timeout) as c:
+            d = c.describe()
+    except Exception as err:  # noqa: BLE001
+        _fail(err)
+        return
+    click.echo(f"Profile: {d.profile_name}  vendor: {d.vendor}  tick: {d.tick_hz} Hz  "
+               f"max states: {d.max_discriminated_states}")
+    for ch in d.channels:
+        kind = device_pb2.ChannelKind.Name(ch.kind).removeprefix("CHANNEL_KIND_").lower()
+        click.echo(f"  - {ch.channel_id:<12} {kind:<16} qubits {list(ch.qubits)}  frame {ch.frame_id:<6} "
+                   f"port {ch.port_id}  {ch.sample_rate_hz / 1e9:g} GS/s")
+
+
+@remote.command("properties")
+@_remote_options
+def remote_properties(target: str, ca: str | None, token: str | None, timeout: float):
+    """Show T1, T2*, readout and gate errors per qubit and pair."""
+    try:
+        with _client(target, ca, token, timeout) as c:
+            p = c.properties()
+    except Exception as err:  # noqa: BLE001
+        _fail(err)
+        return
+    click.echo(f"Source: {p.source}  measured at: {p.measured_at.ToJsonString()}  epoch: {p.calibration_epoch}")
+    click.echo("  qubit   f (GHz)   T1 (us)  T2* (us)  P(1|0)   P(0|1)   1q error")
+    for q in p.qubits:
+        click.echo(f"  {q.qubit_index:>5}  {q.frequency_hz / 1e9:8.4f}  {q.t1_s * 1e6:8.1f}  {q.t2_star_s * 1e6:8.1f}  "
+                   f"{q.prob_meas1_prep0:7.4f}  {q.prob_meas0_prep1:7.4f}  {q.single_qubit_gate_error:.2e}")
+    for pr in p.pairs:
+        click.echo(f"  pair {list(pr.qubits)}: J = {pr.coupling_hz / 1e6:.2f} MHz, 2q gate "
+                   f"{pr.two_qubit_gate_duration_s * 1e9:.0f} ns, error {pr.two_qubit_gate_error:.2e}")
+
+
+@remote.command("calibration")
+@_remote_options
+@click.option("--qubit", "-q", "qubits", type=int, multiple=True, help="Only these qubits (repeatable)")
+def remote_calibration(target: str, ca: str | None, token: str | None, timeout: float, qubits: tuple[int, ...]):
+    """Print the current calibration snapshot and its epoch as JSON."""
+    try:
+        with _client(target, ca, token, timeout) as c:
+            snap = c.get_calibration(qubits)
+    except Exception as err:  # noqa: BLE001
+        _fail(err)
+        return
+    click.echo(json_format.MessageToJson(snap))
+
+
+@remote.command("run")
+@_remote_options
+@click.argument("job_path", type=click.Path(exists=True, dir_okay=False))
+@click.option("--shots", "-s", type=int, default=None, help="Override num_shots")
+@click.option("--output", "-o", type=click.Path(dir_okay=False), default=None, help="Save results as JSON")
+def remote_run(target: str, ca: str | None, token: str | None, timeout: float, job_path: str, shots: int | None,
+               output: str | None):
+    """Submit a job, wait for it, stream the results and print the readout counts."""
+    from qcss.client import counts
+    from qcss.v1 import job_pb2 as jpb
+    from qcss.v1 import result_pb2
+
+    job = _load_job_file(job_path)
+    if shots is not None:
+        job.num_shots = shots
+    t0 = time.perf_counter()
+    try:
+        with _client(target, ca, token, timeout) as c:
+            job_id, epoch = c.submit(job)
+            click.echo(f"Submitted {job_id} (calibration epoch {epoch})")
+            st = c.wait(job_id)
+            chunks = list(c.results(job_id))
+    except Exception as err:  # noqa: BLE001
+        _fail(err)
+        return
+    elapsed = time.perf_counter() - t0
+    state = result_pb2.JobState.Name(st.state)
+    click.echo(f"{state} in {elapsed:.2f} s on tier {jpb.FidelityTier.Name(st.tier_used)}; {len(chunks)} chunk(s)")
+    if st.message:
+        click.echo(f"  message: {st.message}")
+    keys = sorted({a.result_key for ch in chunks for a in ch.acquisitions})
+    per_key = {k: counts(chunks, [k]) for k in keys}
+    for k, cnt in per_key.items():
+        click.echo(f"  {k}: {dict(sorted(cnt.items()))}")
+    joint = counts(chunks, keys) if keys else {}
+    if len(keys) > 1:
+        click.echo(f"  joint ({', '.join(reversed(keys))}): {dict(sorted(joint.items()))}")
+    points: dict[tuple[int, ...], list] = {}
+    for ch in chunks:
+        points.setdefault(tuple(ch.sweep_point), []).append(ch)
+    per_point = [{"sweep_point": list(p), "counts": counts(cs, keys)} for p, cs in sorted(points.items())]
+    if any(p for p in points):
+        click.echo(f"  per sweep point ({', '.join(reversed(keys))}):")
+        for p in per_point:
+            click.echo(f"    point {p['sweep_point']}: {dict(sorted(p['counts'].items()))}")
+    if output:
+        pathlib.Path(output).write_text(json.dumps({
+            "job_id": job_id, "state": state, "calibration_epoch": epoch, "elapsed_seconds": elapsed,
+            "tier": jpb.FidelityTier.Name(st.tier_used), "chunks": len(chunks), "keys": keys,
+            "counts": joint, "counts_per_key": per_key, "counts_per_point": per_point,
+            "warnings": sorted({w for ch in chunks for w in ch.warnings})}, indent=2), encoding="utf-8")
+        click.echo(f"Saved results to: {pathlib.Path(output).resolve()}")
+    sys.exit(0 if st.state == result_pb2.JOB_STATE_COMPLETED else 1)
+
+
 if __name__ == "__main__":
     app()
