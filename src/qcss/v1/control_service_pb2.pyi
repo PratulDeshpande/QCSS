@@ -96,3 +96,13 @@ class DescribeDeviceResponse(_message.Message):
     DEVICE_FIELD_NUMBER: _ClassVar[int]
     device: _device_pb2.DeviceDescription
     def __init__(self, device: _Optional[_Union[_device_pb2.DeviceDescription, _Mapping]] = ...) -> None: ...
+
+class GetDevicePropertiesRequest(_message.Message):
+    __slots__ = ()
+    def __init__(self) -> None: ...
+
+class GetDevicePropertiesResponse(_message.Message):
+    __slots__ = ("properties",)
+    PROPERTIES_FIELD_NUMBER: _ClassVar[int]
+    properties: _device_pb2.DeviceProperties
+    def __init__(self, properties: _Optional[_Union[_device_pb2.DeviceProperties, _Mapping]] = ...) -> None: ...

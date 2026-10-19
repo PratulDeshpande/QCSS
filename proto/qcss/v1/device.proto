@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package qcss.v1;
 
+import "google/protobuf/timestamp.proto";
+
 enum ChannelKind {
   CHANNEL_KIND_UNSPECIFIED = 0;
   CHANNEL_KIND_DRIVE = 1;
@@ -27,4 +29,36 @@ message DeviceDescription {
   repeated ChannelInfo channels = 4;
   uint32 max_discriminated_states = 5;
   uint64 default_repetition_delay_ticks = 6;
+}
+
+// Error-model numbers per qubit, as a lab's calibration software would report them (Qibocal, RB, T1/T2 fits).
+// Readout error names follow the convention P(measured | prepared).
+message QubitProperties {
+  uint32 qubit_index = 1;
+  double frequency_hz = 2;
+  double t1_s = 3;
+  double t2_star_s = 4;
+  double prob_meas1_prep0 = 5;
+  double prob_meas0_prep1 = 6;
+  double single_qubit_gate_error = 7;
+  double single_qubit_gate_duration_s = 8;
+  double readout_duration_s = 9;
+}
+
+// One coupled pair. two_qubit_gate_error is for the pair's native entangler.
+message PairProperties {
+  repeated uint32 qubits = 1;
+  double coupling_hz = 2;
+  double two_qubit_gate_error = 3;
+  double two_qubit_gate_duration_s = 4;
+}
+
+message DeviceProperties {
+  google.protobuf.Timestamp measured_at = 1;
+  // Where the numbers come from: "device-model" (QCSS: derived from the device file, not measured),
+  // or the lab's calibration software when served by a hardware gateway.
+  string source = 2;
+  uint64 calibration_epoch = 3;
+  repeated QubitProperties qubits = 4;
+  repeated PairProperties pairs = 5;
 }

@@ -15,6 +15,7 @@ service ControlService {
   rpc GetCalibration(GetCalibrationRequest) returns (GetCalibrationResponse);
   rpc UpdateCalibration(UpdateCalibrationRequest) returns (UpdateCalibrationResponse);
   rpc DescribeDevice(DescribeDeviceRequest) returns (DescribeDeviceResponse);
+  rpc GetDeviceProperties(GetDevicePropertiesRequest) returns (GetDevicePropertiesResponse);
 }
 
 message SubmitJobRequest {
@@ -72,4 +73,10 @@ message DescribeDeviceRequest {}
 
 message DescribeDeviceResponse {
   DeviceDescription device = 1;
+}
+
+message GetDevicePropertiesRequest {}
+
+message GetDevicePropertiesResponse {
+  DeviceProperties properties = 1;
 }

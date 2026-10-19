@@ -125,7 +125,7 @@ The server implements `qcss.v1.ControlService` (`SubmitJob`, `GetJobStatus`, `Ca
 gRPC health check, and supports server reflection, so `grpcurl` can explore it.
 
 > **Security.** The server binds to loopback by default. To reach it from another machine, serve with
-> TLS and a token; `qcss serve` refuses a network bind without TLS unless you pass `--insecure`:
+> TLS and a token; `qcss serve` refuses a network bind without both unless you pass `--insecure`:
 >
 > ```bash
 > qcss serve --host 192.168.1.20 --tls-cert server.pem --tls-key server.key --token "$QCSS_TOKEN"

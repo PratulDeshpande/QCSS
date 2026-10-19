@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
+import datetime
 import multiprocessing
 import os
 import pickle
@@ -52,7 +53,7 @@ from qcss.signal.filters import FluxLineModel
 from qcss.signal.mixer import IQCorrection, IQImpairment
 from qcss.signal.port_renderer import DriveChain, FluxChain
 from qcss.signal.predistortion import QbloxRTP
-from qcss.v1 import calibration_pb2, job_pb2, result_pb2
+from qcss.v1 import calibration_pb2, device_pb2, job_pb2, result_pb2
 
 REQUESTED = {
     job_pb2.FIDELITY_TIER_UNSPECIFIED: "AUTO",
@@ -68,7 +69,16 @@ TIER_ENUM = {"T0": job_pb2.FIDELITY_TIER_T0_SURROGATE, "T1A": job_pb2.FIDELITY_T
 TIER_FIDELITY = {"T0": result_pb2.NOISE_FIDELITY_SURROGATE, "T1A": result_pb2.NOISE_FIDELITY_TWIRLED,
                  "T1B": result_pb2.NOISE_FIDELITY_PHYSICAL, "T2": result_pb2.NOISE_FIDELITY_PHYSICAL}
 DEFAULT_FLUX_PHI0_PER_FS = 0.5          # full-scale flux amplitude -> 0.5 Phi0 when the device gives no M_fast
-ENSEMBLE_RESIDUAL_MAX = 1e-4            # carry-over below this lets T2 evolve once per sweep point (PH-23)
+NOMINAL_PI_SAMPLES = 20                 # single-qubit gate length when the calibration does not set one
+NOMINAL_READOUT_S = 1e-6                # integration window behind the reported readout errors
+
+
+def _coherence_limited_fidelity(t_s: float, t1_s: float, t2_s: float) -> float:
+    """Average gate fidelity of an idle qubit under amplitude and phase damping for t_s."""
+    return float((3.0 + np.exp(-t_s / t1_s) + 2.0 * np.exp(-t_s / t2_s)) / 6.0)
+
+
+ENSEMBLE_RESIDUAL_MAX = 1e-4           # carry-over below this lets T2 evolve once per sweep point (PH-23)
 
 
 @dataclass
@@ -205,6 +215,69 @@ class SimulationContext:
                 f_out.append(d.f01_ghz)
                 t1_out.append(d.t1_ns)
         return f_out, t1_out
+
+    def _physical_readout(self, cid: str, snap: calibration_pb2.CalibrationSnapshot,
+                          os_set: frozenset[int]) -> PhysicalReadout | None:
+        """The resonator readout of readout channel `cid` under `snap`, or None without resonator data."""
+        b = self.bindings[cid]
+        q = b.qubits[0]
+        r = self.device.resonator(q) if self.device is not None else None
+        if r is None:
+            return None
+        acq = self.profile.acquisition
+        qc = self._qcal(snap, q)
+        delay = self.tb.ticks_to_ns(qc.readout_delay_ticks) if qc is not None and qc.readout_delay_ticks else None
+        return PhysicalReadout(
+            r, adc_dt_ns=self.ticks_per_sample[b.generator_id] * 1e9 / float(self.tb.tick_hz),
+            tof_ns=self.tb.ticks_to_ns(self.tof[cid]),
+            max_states=acq.max_discriminated_states, convention=acq.integration_convention,
+            readout_frequency_hz=qc.readout_frequency_hz if qc is not None and qc.readout_frequency_hz else None,
+            delay_ns=delay,
+            os_rotation_rad=qc.readout_rotation_rad if q in os_set and qc is not None else None,
+            os_threshold=qc.readout_threshold if q in os_set and qc is not None else None)
+
+    def device_properties(self) -> device_pb2.DeviceProperties:
+        """T1, T2*, readout and coherence-limited gate errors per qubit and coupled pair, now.
+
+        These are modelled, not measured (source "device-model"): QCSS has no randomized
+        benchmarking, so gate errors are the coherence limit for the nominal gate duration.
+        """
+        snap = self.calibration.snapshot([])
+        os_set = self.calibration.os_set()
+        f_now, t1_now = self.device_parameters(self.lab_time_s)
+        props = device_pb2.DeviceProperties(source="device-model", calibration_epoch=snap.calibration_epoch)
+        props.measured_at.FromDatetime(datetime.datetime.now(datetime.UTC))
+        t2: dict[int, float] = {}
+        for i, (q, d) in enumerate(self.qdef.items()):
+            t1_s, t2[q] = t1_now[i] * 1e-9, d.t2_ns * 1e-9
+            qp = props.qubits.add(qubit_index=q, frequency_hz=f_now[i] * 1e9, t1_s=t1_s, t2_star_s=t2[q],
+                                  readout_duration_s=NOMINAL_READOUT_S)
+            xy = self.bindings.get(f"xy_q{q}")
+            qc = self._qcal(snap, q)
+            if xy is not None:
+                length = qc.pi_length_samples if qc is not None and qc.pi_length_samples else NOMINAL_PI_SAMPLES
+                qp.single_qubit_gate_duration_s = length / float(self.gens[xy.generator_id].sample_rate_hz)
+                qp.single_qubit_gate_error = 1.0 - _coherence_limited_fidelity(
+                    qp.single_qubit_gate_duration_s, t1_s, t2[q])
+            ro = self.bindings.get(f"ro_q{q}")
+            phys = self._physical_readout(ro.channel_id, snap, os_set) if ro is not None else None
+            if phys is not None:
+                n = max(1, round(NOMINAL_READOUT_S * float(self.gens[ro.generator_id].sample_rate_hz)))  # type: ignore[union-attr]
+                conf = SurrogateReadout(phys, self.profile.acquisition.max_discriminated_states)._model(
+                    n, float(f"{t1_now[i]:.3g}")).c
+                qp.prob_meas1_prep0, qp.prob_meas0_prep1 = float(conf[0, 1:].sum()), float(conf[1, 0])
+        t1_by_q = {q: p.t1_s for q, p in zip(self.qdef, props.qubits, strict=True)}
+        for c in self.device.couplers if self.device is not None else ():
+            a, b = c.qubit_pair
+            if a not in t1_by_q or b not in t1_by_q or c.j_mhz <= 0:
+                continue
+            j_hz = c.j_mhz * 1e6
+            t = 1.0 / (2.0 * np.sqrt(2.0) * j_hz)       # CZ via the |11>-|02> avoided crossing: t = pi / (sqrt2 * 2 pi J)
+            f_proc = ((3 * _coherence_limited_fidelity(t, t1_by_q[a], t2[a]) - 1) / 2
+                      * (3 * _coherence_limited_fidelity(t, t1_by_q[b], t2[b]) - 1) / 2)
+            props.pairs.add(qubits=[a, b], coupling_hz=j_hz, two_qubit_gate_duration_s=t,
+                            two_qubit_gate_error=1.0 - (4 * f_proc + 1) / 5)
+        return props
 
     def drive_frequencies_hz(self, snap: calibration_pb2.CalibrationSnapshot) -> dict[int, float]:
         out = {}
@@ -365,22 +438,8 @@ class SimulationContext:
             if b.kind is not ChannelKind.READOUT:
                 continue
             q = b.qubits[0]
-            per = self.ticks_per_sample[b.generator_id]
-            adc[cid] = per
-            r = dev.resonator(q) if dev is not None else None
-            phys = None
-            if r is not None:
-                qc = self._qcal(snap, q)
-                delay = (self.tb.ticks_to_ns(qc.readout_delay_ticks) if qc is not None and qc.readout_delay_ticks
-                         else None)
-                phys = PhysicalReadout(
-                    r, adc_dt_ns=per * 1e9 / float(self.tb.tick_hz), tof_ns=self.tb.ticks_to_ns(self.tof[cid]),
-                    max_states=acq.max_discriminated_states, convention=acq.integration_convention,
-                    readout_frequency_hz=(qc.readout_frequency_hz if qc is not None and qc.readout_frequency_hz
-                                          else None),
-                    delay_ns=delay,
-                    os_rotation_rad=qc.readout_rotation_rad if q in os_set and qc is not None else None,
-                    os_threshold=qc.readout_threshold if q in os_set and qc is not None else None)
+            adc[cid] = self.ticks_per_sample[b.generator_id]
+            phys = self._physical_readout(cid, snap, os_set)
             readout[q] = phys if (tier == "T2" and phys is not None) else SurrogateReadout(
                 phys, acq.max_discriminated_states)
 

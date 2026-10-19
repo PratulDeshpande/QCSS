@@ -29,10 +29,12 @@ class ServicerContext(Protocol):
 
 class ControlService(pbg.ControlServiceServicer):
     def __init__(self, jobs: JobManager, device: pb.DescribeDeviceResponse,
-                 calibration: CalibrationStore | None = None) -> None:
+                 calibration: CalibrationStore | None = None,
+                 properties: Callable[[], device_pb2.DeviceProperties] | None = None) -> None:
         self.jobs = jobs
         self.device = device
         self.calibration = calibration if calibration is not None else CalibrationStore()
+        self.properties = properties
 
     async def SubmitJob(self, request: pb.SubmitJobRequest, context: ServicerContext) -> pb.SubmitJobResponse:
         try:
@@ -85,6 +87,12 @@ class ControlService(pbg.ControlServiceServicer):
                              context: ServicerContext) -> pb.DescribeDeviceResponse:
         return self.device
 
+    async def GetDeviceProperties(self, request: pb.GetDevicePropertiesRequest,
+                                  context: ServicerContext) -> pb.GetDevicePropertiesResponse:
+        if self.properties is None:
+            await context.abort(grpc.StatusCode.UNIMPLEMENTED, "this server has no device model")
+        return pb.GetDevicePropertiesResponse(properties=self.properties())
+
 
 def describe_device(profile, bindings) -> pb.DescribeDeviceResponse:
     """DeviceDescription from the hardware profile and the channel bindings the server offers."""
@@ -108,12 +116,13 @@ _PUBLIC_METHOD_PREFIXES = ("/grpc.health.v1.Health/",)
 
 
 class UnsafeBindError(ValueError):
-    """A network-reachable bind without TLS (anyone on the network could submit jobs and rewrite calibration)."""
+    """A network-reachable bind without TLS and a token (anyone on the network could submit jobs and rewrite
+    calibration)."""
 
 
-def check_bind_is_safe(address: str, *, tls: bool, insecure: bool) -> None:
-    """Refuse a non-loopback TCP bind without TLS unless the operator explicitly passes insecure=True."""
-    if tls or insecure or address.startswith(("unix:", "unix-abstract:")):
+def check_bind_is_safe(address: str, *, tls: bool, token: bool, insecure: bool) -> None:
+    """Refuse a non-loopback TCP bind unless it has both TLS and a bearer token, or insecure=True."""
+    if (tls and token) or insecure or address.startswith(("unix:", "unix-abstract:")):
         return
     host = address.rsplit(":", 1)[0].strip("[]")
     if host == "localhost":
@@ -123,8 +132,9 @@ def check_bind_is_safe(address: str, *, tls: bool, insecure: bool) -> None:
             return
     except ValueError:
         pass                                               # a hostname other than localhost may resolve anywhere
-    raise UnsafeBindError(f"refusing to bind {address} without TLS; pass a certificate and key, "
-                          "or --insecure on a network you trust")
+    missing = " and ".join(m for m, ok in (("TLS", tls), ("a token", token)) if not ok)
+    raise UnsafeBindError(f"refusing to bind {address} without {missing}; pass --tls-cert/--tls-key and "
+                          "--token, or --insecure on a network you trust")
 
 
 class BearerTokenInterceptor(grpc.aio.ServerInterceptor):
@@ -174,6 +184,7 @@ async def serve(
     address: str, jobs: JobManager, device: pb.DescribeDeviceResponse | None = None,
     calibration: CalibrationStore | None = None, *,
     tls: tuple[bytes, bytes] | None = None, token: str | None = None,
+    properties: Callable[[], device_pb2.DeviceProperties] | None = None,
 ) -> grpc.aio.Server:
     """address: 'unix:C:/.../qcss.sock' (Windows 10+) or '127.0.0.1:50051'.
     tls: PEM (certificate chain, private key); token: required as `authorization: Bearer <token>`.
@@ -191,7 +202,7 @@ async def serve(
             ("grpc.http2.max_pings_without_data", 0),
         ],
     )
-    pbg.add_ControlServiceServicer_to_server(ControlService(jobs, device_desc, calibration), server)
+    pbg.add_ControlServiceServicer_to_server(ControlService(jobs, device_desc, calibration, properties), server)
     service_name = pb.DESCRIPTOR.services_by_name["ControlService"].full_name
 
     # Health checking (grpcio-health-checking): SERVING for the server and ControlService

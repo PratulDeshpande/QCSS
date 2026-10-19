@@ -109,16 +109,17 @@ async def test_tls_server_accepts_a_client_that_trusts_its_certificate():
 
 @pytest.mark.parametrize("address", ["127.0.0.1:50051", "localhost:50051", "[::1]:50051",
                                      "unix:C:/tmp/qcss.sock"])
-def test_loopback_and_unix_binds_are_safe_without_tls(address):
-    check_bind_is_safe(address, tls=False, insecure=False)
+def test_loopback_and_unix_binds_are_safe_without_tls_or_token(address):
+    check_bind_is_safe(address, tls=False, token=False, insecure=False)
 
 
 @pytest.mark.parametrize("address", ["0.0.0.0:50051", "192.168.1.20:50051", "[::]:50051"])
-def test_network_bind_without_tls_is_refused(address):
+@pytest.mark.parametrize(("tls", "token"), [(False, False), (False, True), (True, False)])
+def test_network_bind_needs_both_tls_and_a_token(address, tls, token):
     with pytest.raises(UnsafeBindError):
-        check_bind_is_safe(address, tls=False, insecure=False)
+        check_bind_is_safe(address, tls=tls, token=token, insecure=False)
 
 
-def test_network_bind_is_allowed_with_tls_or_explicit_insecure():
-    check_bind_is_safe("0.0.0.0:50051", tls=True, insecure=False)
-    check_bind_is_safe("0.0.0.0:50051", tls=False, insecure=True)
+def test_network_bind_is_allowed_with_tls_and_token_or_explicit_insecure():
+    check_bind_is_safe("0.0.0.0:50051", tls=True, token=True, insecure=False)
+    check_bind_is_safe("0.0.0.0:50051", tls=False, token=False, insecure=True)

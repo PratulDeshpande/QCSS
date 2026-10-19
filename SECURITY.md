@@ -28,7 +28,7 @@ mind before reporting them as vulnerabilities:
 * **Authentication and TLS are opt-in.** The gRPC server (`qcss serve`) binds to `127.0.0.1` by
   default, without TLS or a token. For LAN use pass `--tls-cert`/`--tls-key` and `--token` (or
   `QCSS_TOKEN`): every call except the gRPC health check then needs `authorization: Bearer <token>`.
-  `qcss serve` refuses a non-loopback bind without TLS unless `--insecure` is given. There is one
+  `qcss serve` refuses a non-loopback bind without TLS and a token unless `--insecure` is given. There is one
   shared token and no per-user access control: anyone holding it can submit jobs and overwrite the
   calibration. See [docs/remote-testing.md](docs/remote-testing.md).
 * **Untrusted input is protobuf only.** The server never unpickles network data. `pickle` is used
