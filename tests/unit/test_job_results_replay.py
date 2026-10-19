@@ -5,7 +5,7 @@ import asyncio
 
 import pytest
 
-from qcss.runtime.jobs import JobManager
+from qcss.runtime.jobs import JobManager, ResultsEvictedError
 from qcss.v1 import job_pb2, result_pb2
 
 pytestmark = pytest.mark.anyio
@@ -63,5 +63,41 @@ async def test_cancel_releases_a_producer_blocked_on_a_full_buffer():
             await asyncio.sleep(0.01)
         assert jobs.status(job_id).state == result_pb2.JOB_STATE_CANCELLED
         assert len(await asyncio.wait_for(_drain(jobs, job_id), 5)) <= 2
+    finally:
+        await jobs.close()
+
+
+async def test_only_the_newest_finished_jobs_are_retained():
+    jobs = JobManager(five_chunks, validator, max_retained_jobs=2)
+    try:
+        ids = []
+        for _ in range(3):
+            ids.append(await jobs.submit(job_pb2.Job(num_shots=1)))
+            await asyncio.wait_for(_drain(jobs, ids[-1]), 5)
+        assert not jobs.has_job(ids[0])
+        assert jobs.has_job(ids[1]) and jobs.has_job(ids[2])
+    finally:
+        await jobs.close()
+
+
+async def test_replay_window_drops_the_oldest_chunks_beyond_the_byte_cap():
+    one = result_pb2.ResultChunk(job_id="x" * 32, sequence_number=1, is_last=False).ByteSize()
+    jobs = JobManager(five_chunks, validator, max_retained_bytes_per_job=2 * one + 4)
+    try:
+        job_id = await jobs.submit(job_pb2.Job(num_shots=1))
+        assert await asyncio.wait_for(_drain(jobs, job_id), 5) == [1, 2, 3, 4, 5]
+        with pytest.raises(ResultsEvictedError):
+            await asyncio.wait_for(_drain(jobs, job_id), 5)
+        resumed = [c.sequence_number async for c in jobs.results(job_id, resume_after_sequence=3)]
+        assert resumed == [4, 5]
+    finally:
+        await jobs.close()
+
+
+async def test_resumed_reader_does_not_count_skipped_chunks_as_delivered():
+    jobs = JobManager(five_chunks, validator)
+    try:
+        job_id = await jobs.submit(job_pb2.Job(num_shots=1))
+        assert [c.sequence_number async for c in jobs.results(job_id, resume_after_sequence=2)] == [3, 4, 5]
     finally:
         await jobs.close()

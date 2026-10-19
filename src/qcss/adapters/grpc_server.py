@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import hmac
 import inspect
-import ipaddress
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any, NoReturn, Protocol
@@ -12,8 +11,9 @@ import grpc
 
 from qcss.adapters.errors import failed_precondition_status, invalid_argument_status
 from qcss.core.errors import HardwareValidationError, TierRoutingError
+from qcss.core.net import is_local_address
 from qcss.runtime.calibration_store import CalibrationEpochError, CalibrationStore
-from qcss.runtime.jobs import JobManager
+from qcss.runtime.jobs import JobManager, ResultsEvictedError
 from qcss.v1 import control_service_pb2 as pb
 from qcss.v1 import control_service_pb2_grpc as pbg
 from qcss.v1 import device_pb2
@@ -66,10 +66,11 @@ class ControlService(pbg.ControlServiceServicer):
                             context: ServicerContext) -> AsyncIterator[pb.StreamResultsResponse]:
         if not self.jobs.has_job(request.job_id):
             await context.abort(grpc.StatusCode.NOT_FOUND, f"unknown job {request.job_id}")
-        async for chunk in self.jobs.results(request.job_id):
-            if request.resume_after_sequence and chunk.sequence_number <= request.resume_after_sequence:
-                continue
-            yield pb.StreamResultsResponse(chunk=chunk)
+        try:
+            async for chunk in self.jobs.results(request.job_id, request.resume_after_sequence):
+                yield pb.StreamResultsResponse(chunk=chunk)
+        except ResultsEvictedError as err:
+            await context.abort(grpc.StatusCode.OUT_OF_RANGE, str(err))
 
     async def GetCalibration(self, request: pb.GetCalibrationRequest,
                              context: ServicerContext) -> pb.GetCalibrationResponse:
@@ -122,16 +123,8 @@ class UnsafeBindError(ValueError):
 
 def check_bind_is_safe(address: str, *, tls: bool, token: bool, insecure: bool) -> None:
     """Refuse a non-loopback TCP bind unless it has both TLS and a bearer token, or insecure=True."""
-    if (tls and token) or insecure or address.startswith(("unix:", "unix-abstract:")):
+    if (tls and token) or insecure or is_local_address(address):
         return
-    host = address.rsplit(":", 1)[0].strip("[]")
-    if host == "localhost":
-        return
-    try:
-        if ipaddress.ip_address(host).is_loopback:
-            return
-    except ValueError:
-        pass                                               # a hostname other than localhost may resolve anywhere
     missing = " and ".join(m for m, ok in (("TLS", tls), ("a token", token)) if not ok)
     raise UnsafeBindError(f"refusing to bind {address} without {missing}; pass --tls-cert/--tls-key and "
                           "--token, or --insecure on a network you trust")

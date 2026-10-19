@@ -386,12 +386,15 @@ def _remote_options(f):
     f = click.option("--ca", type=click.Path(exists=True, dir_okay=False), default=None,
                      help="PEM certificate to trust (the server's self-signed cert or its CA); enables TLS")(f)
     f = click.option("--token", envvar="QCSS_TOKEN", default=None, help="Bearer token (env QCSS_TOKEN)")(f)
+    f = click.option("--insecure", is_flag=True,
+                     help="Allow sending the token without TLS to a non-loopback address (trusted networks only)")(f)
     return click.option("--timeout", type=float, default=30.0, show_default=True, help="Per-call timeout, s")(f)
 
 
-def _client(target: str, ca: str | None, token: str | None, timeout: float):
+def _client(target: str, ca: str | None, token: str | None, timeout: float, insecure: bool = False):
     from qcss.client import QcssClient
-    return QcssClient(target, tls_ca=pathlib.Path(ca).read_bytes() if ca else None, token=token, timeout_s=timeout)
+    return QcssClient(target, tls_ca=pathlib.Path(ca).read_bytes() if ca else None, token=token, timeout_s=timeout,
+                      insecure=insecure)
 
 
 def _fail(err: Exception) -> None:
@@ -409,11 +412,11 @@ def _fail(err: Exception) -> None:
 
 @remote.command("ping")
 @_remote_options
-def remote_ping(target: str, ca: str | None, token: str | None, timeout: float):
+def remote_ping(target: str, ca: str | None, token: str | None, timeout: float, insecure: bool):
     """Check that the server is reachable and healthy (gRPC health check)."""
     t0 = time.perf_counter()
     try:
-        with _client(target, ca, token, timeout) as c:
+        with _client(target, ca, token, timeout, insecure) as c:
             ok = c.health()
     except Exception as err:  # noqa: BLE001
         _fail(err)
@@ -424,11 +427,11 @@ def remote_ping(target: str, ca: str | None, token: str | None, timeout: float):
 
 @remote.command("describe")
 @_remote_options
-def remote_describe(target: str, ca: str | None, token: str | None, timeout: float):
+def remote_describe(target: str, ca: str | None, token: str | None, timeout: float, insecure: bool):
     """Show the instrument profile and the channels the server offers."""
     from qcss.v1 import device_pb2
     try:
-        with _client(target, ca, token, timeout) as c:
+        with _client(target, ca, token, timeout, insecure) as c:
             d = c.describe()
     except Exception as err:  # noqa: BLE001
         _fail(err)
@@ -443,10 +446,10 @@ def remote_describe(target: str, ca: str | None, token: str | None, timeout: flo
 
 @remote.command("properties")
 @_remote_options
-def remote_properties(target: str, ca: str | None, token: str | None, timeout: float):
+def remote_properties(target: str, ca: str | None, token: str | None, timeout: float, insecure: bool):
     """Show T1, T2*, readout and gate errors per qubit and pair."""
     try:
-        with _client(target, ca, token, timeout) as c:
+        with _client(target, ca, token, timeout, insecure) as c:
             p = c.properties()
     except Exception as err:  # noqa: BLE001
         _fail(err)
@@ -464,10 +467,11 @@ def remote_properties(target: str, ca: str | None, token: str | None, timeout: f
 @remote.command("calibration")
 @_remote_options
 @click.option("--qubit", "-q", "qubits", type=int, multiple=True, help="Only these qubits (repeatable)")
-def remote_calibration(target: str, ca: str | None, token: str | None, timeout: float, qubits: tuple[int, ...]):
+def remote_calibration(target: str, ca: str | None, token: str | None, timeout: float, insecure: bool,
+                       qubits: tuple[int, ...]):
     """Print the current calibration snapshot and its epoch as JSON."""
     try:
-        with _client(target, ca, token, timeout) as c:
+        with _client(target, ca, token, timeout, insecure) as c:
             snap = c.get_calibration(qubits)
     except Exception as err:  # noqa: BLE001
         _fail(err)
@@ -480,7 +484,8 @@ def remote_calibration(target: str, ca: str | None, token: str | None, timeout: 
 @click.argument("job_path", type=click.Path(exists=True, dir_okay=False))
 @click.option("--shots", "-s", type=int, default=None, help="Override num_shots")
 @click.option("--output", "-o", type=click.Path(dir_okay=False), default=None, help="Save results as JSON")
-def remote_run(target: str, ca: str | None, token: str | None, timeout: float, job_path: str, shots: int | None,
+def remote_run(target: str, ca: str | None, token: str | None, timeout: float, insecure: bool,
+               job_path: str, shots: int | None,
                output: str | None):
     """Submit a job, wait for it, stream the results and print the readout counts."""
     from qcss.client import counts
@@ -492,7 +497,7 @@ def remote_run(target: str, ca: str | None, token: str | None, timeout: float, j
         job.num_shots = shots
     t0 = time.perf_counter()
     try:
-        with _client(target, ca, token, timeout) as c:
+        with _client(target, ca, token, timeout, insecure) as c:
             job_id, epoch = c.submit(job)
             click.echo(f"Submitted {job_id} (calibration epoch {epoch})")
             st = c.wait(job_id)

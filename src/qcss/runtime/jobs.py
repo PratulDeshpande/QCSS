@@ -1,4 +1,4 @@
-"""JobManager: state machine, priority dispatch, bounded per-job result queues, cancellation.
+"""JobManager: state machine, priority dispatch, replayable bounded per-job results, cancellation.
 
 The heavy work (compile + simulate) runs in a persistent process pool; this module only
 orchestrates. `runner` is injected so tests can use a fake runner or real worker pool.
@@ -6,6 +6,7 @@ orchestrates. `runner` is injected so tests can use a fake runner or real worker
 from __future__ import annotations
 
 import asyncio
+import collections
 import itertools
 import time
 import uuid
@@ -24,6 +25,10 @@ Runner = Callable[[str, job_pb2.Job, asyncio.Event], AsyncIterator[result_pb2.Re
 Validator = Callable[[job_pb2.Job], Awaitable[Any]]
 
 
+class ResultsEvictedError(LookupError):
+    """The chunks a reader asked for were dropped from the job's replay window (resume from later)."""
+
+
 def _now() -> Timestamp:
     ts = Timestamp()
     ts.FromNanoseconds(time.time_ns())
@@ -38,22 +43,30 @@ class _JobRecord:
     cancel: asyncio.Event = field(default_factory=asyncio.Event)
     finished: asyncio.Event = field(default_factory=asyncio.Event)
     info: Any = None
-    # Every chunk is kept, so a client can reconnect and resume (StreamResults any number of times).
+    # Chunks are kept so a client can reconnect and resume (StreamResults any number of times).
     # Backpressure: the producer runs at most max_buffered_chunks ahead of the furthest reader.
-    chunks: list[result_pb2.ResultChunk] = field(default_factory=list)
-    delivered: int = 0                    # chunks the furthest reader has taken
+    # Memory: once the retained bytes exceed the per-job cap, chunks every reader has passed are
+    # dropped from the front; `first` is the absolute index of chunks[0] (sequence number - 1).
+    chunks: collections.deque[result_pb2.ResultChunk] = field(default_factory=collections.deque)
+    first: int = 0
+    retained_bytes: int = 0
+    delivered: int = 0                    # absolute count of chunks the furthest reader has taken
     changed: asyncio.Condition = field(default_factory=asyncio.Condition)
 
 
 class JobManager:
     def __init__(self, runner: Runner, validator: Validator, *,
-                 max_buffered_chunks: int = 64, max_concurrent_jobs: int = 2) -> None:
+                 max_buffered_chunks: int = 64, max_concurrent_jobs: int = 2,
+                 max_retained_jobs: int = 256, max_retained_bytes_per_job: int = 256 << 20) -> None:
         self._runner = runner
         self._validator = validator
         self._jobs: dict[str, _JobRecord] = {}
         self._queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         self._seq = itertools.count()             # tie-breaker: FIFO among equal priorities
         self._max_buf = max_buffered_chunks
+        self._max_jobs = max_retained_jobs
+        self._max_bytes = max_retained_bytes_per_job
+        self._finished_order: collections.deque[str] = collections.deque()   # oldest finished job first
         self._workers = [asyncio.create_task(self._dispatch_loop()) for _ in range(max_concurrent_jobs)]
 
     async def submit(self, job: job_pb2.Job) -> str:
@@ -89,16 +102,23 @@ class JobManager:
             self._wake(rec)                       # a producer blocked on backpressure re-checks cancel
         return rec.status
 
-    async def results(self, job_id: str) -> AsyncIterator[result_pb2.ResultChunk]:
-        """All chunks of the job from the first, then live ones until it finishes."""
+    async def results(self, job_id: str, resume_after_sequence: int = 0) -> AsyncIterator[result_pb2.ResultChunk]:
+        """The job's chunks with sequence number > resume_after_sequence, then live ones until it finishes.
+
+        Raises ResultsEvictedError if some of those chunks were already dropped from the replay window.
+        """
         rec = self._jobs[job_id]
-        i = 0
+        i = resume_after_sequence                 # absolute index of the next chunk (sequence numbers are 1, 2, ...)
         while True:
             async with rec.changed:
-                await rec.changed.wait_for(lambda i=i: i < len(rec.chunks) or rec.finished.is_set())
-                if i >= len(rec.chunks):
+                await rec.changed.wait_for(
+                    lambda i=i: i < rec.first + len(rec.chunks) or rec.finished.is_set())
+                if i < rec.first:
+                    raise ResultsEvictedError(f"job {job_id}: chunks up to sequence {rec.first} are no longer "
+                                              f"retained; resume after sequence {rec.first} or later")
+                if i >= rec.first + len(rec.chunks):
                     return
-                chunk = rec.chunks[i]
+                chunk = rec.chunks[i - rec.first]
                 i += 1
                 if i > rec.delivered:
                     rec.delivered = i
@@ -120,6 +140,9 @@ class JobManager:
         rec.status.finished_at.CopyFrom(_now())
         rec.finished.set()
         self._wake(rec)                           # readers waiting for more chunks see the end
+        self._finished_order.append(rec.job_id)
+        while len(self._finished_order) > self._max_jobs:
+            self._jobs.pop(self._finished_order.popleft(), None)
 
     async def _dispatch_loop(self) -> None:
         while True:
@@ -136,10 +159,15 @@ class JobManager:
                 async for chunk in self._runner(job_id, rec.job, rec.cancel):
                     async with rec.changed:       # blocks when every client is slow (backpressure)
                         await rec.changed.wait_for(
-                            lambda rec=rec: len(rec.chunks) - rec.delivered < self._max_buf or rec.cancel.is_set())
+                            lambda rec=rec: rec.first + len(rec.chunks) - rec.delivered < self._max_buf
+                            or rec.cancel.is_set())
                         if rec.cancel.is_set():
                             break
                         rec.chunks.append(chunk)
+                        rec.retained_bytes += chunk.ByteSize()
+                        while rec.retained_bytes > self._max_bytes and rec.first < rec.delivered:
+                            rec.retained_bytes -= rec.chunks.popleft().ByteSize()
+                            rec.first += 1
                         rec.changed.notify_all()
                 self._finish(rec, result_pb2.JOB_STATE_CANCELLED if rec.cancel.is_set()
                              else result_pb2.JOB_STATE_COMPLETED)

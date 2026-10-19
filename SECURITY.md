@@ -33,9 +33,13 @@ mind before reporting them as vulnerabilities:
   calibration. See [docs/remote-testing.md](docs/remote-testing.md).
 * **Untrusted input is protobuf only.** The server never unpickles network data. `pickle` is used
   solely for parent-to-child process communication inside the server's own worker pool.
-* **Resource limits are modest.** Messages are capped at 16 MiB, result queues are bounded, and
-  hardware-rule checks reject oversized programs, but a client can still submit many large jobs. The
-  server keeps finished jobs in memory until it restarts.
+* **Resource limits are modest.** Messages are capped at 16 MiB and hardware-rule checks reject
+  oversized programs, but a client can still submit many large jobs. The server keeps each job's
+  results so clients can reconnect and resume: at most 256 MiB per job (older chunks every reader has
+  passed are dropped, and resuming before them returns `OUT_OF_RANGE`) and the 256 most recent
+  finished jobs (older ones return `NOT_FOUND`).
+* **The client protects the token.** `QcssClient` and `qcss remote` refuse to send a token without
+  TLS to a non-loopback address unless `insecure=True` / `--insecure` is given.
 
 Reports that demonstrate a way around these protections, remote code execution, or memory-safety
 problems in QCSS's own code are in scope.

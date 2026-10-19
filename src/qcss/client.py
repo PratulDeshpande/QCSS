@@ -22,6 +22,7 @@ from google.rpc import error_details_pb2
 from grpc_status import rpc_status
 
 from qcss.core.ndarray import from_proto
+from qcss.core.net import is_local_address
 from qcss.v1 import calibration_pb2, device_pb2, job_pb2, result_pb2
 from qcss.v1 import control_service_pb2 as pb
 from qcss.v1 import control_service_pb2_grpc as pbg
@@ -59,10 +60,16 @@ class QcssRpcError(Exception):
 
 
 class QcssClient:
-    """One channel to a ControlService. Pass tls_ca (PEM) for a TLS server and token for an authenticated one."""
+    """One channel to a ControlService. Pass tls_ca (PEM) for a TLS server and token for an authenticated one.
+
+    A token is only sent over TLS or to a loopback address, unless insecure=True.
+    """
 
     def __init__(self, target: str, *, tls_ca: bytes | None = None, token: str | None = None,
-                 timeout_s: float = 30.0) -> None:
+                 timeout_s: float = 30.0, insecure: bool = False) -> None:
+        if token and tls_ca is None and not insecure and not is_local_address(target):
+            raise ValueError(f"refusing to send the token in cleartext to {target}; pass tls_ca (the server's "
+                             "certificate) or insecure=True on a network you trust")
         options = [("grpc.max_send_message_length", MAX_MESSAGE_BYTES),
                    ("grpc.max_receive_message_length", MAX_MESSAGE_BYTES),
                    ("grpc.keepalive_time_ms", 30_000),               # >= the server's 10 s minimum ping interval

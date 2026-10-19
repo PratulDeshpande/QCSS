@@ -41,8 +41,9 @@ def make_job(shots: int, *, amplitude: float | None = PI_AMPLITUDE, seed: int = 
 
 
 class Smoke:
-    def __init__(self, client: QcssClient, token: str | None, target: str, ca: bytes | None) -> None:
-        self.c, self.token, self.target, self.ca = client, token, target, ca
+    def __init__(self, client: QcssClient, token: str | None, target: str, ca: bytes | None,
+                 insecure: bool = False) -> None:
+        self.c, self.token, self.target, self.ca, self.insecure = client, token, target, ca, insecure
         self.steps: list[dict[str, Any]] = []
 
     def step(self, name: str, fn: Callable[[], str]) -> None:
@@ -149,7 +150,7 @@ class Smoke:
     def wrong_token(self) -> str:
         if not self.token:
             return "skipped: server reached without a token (pass --token to test authentication)"
-        with QcssClient(self.target, tls_ca=self.ca, token=self.token + "-wrong") as bad:
+        with QcssClient(self.target, tls_ca=self.ca, token=self.token + "-wrong", insecure=self.insecure) as bad:
             try:
                 bad.describe()
             except QcssRpcError as err:
@@ -176,13 +177,20 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--ca", type=pathlib.Path, help="PEM certificate to trust (enables TLS)")
     ap.add_argument("--token", help="bearer token the server was started with")
     ap.add_argument("--report", type=pathlib.Path, help="write the results as JSON here")
+    ap.add_argument("--insecure", action="store_true",
+                    help="send the token without TLS to a non-loopback address (trusted networks only)")
     args = ap.parse_args(argv)
     ca = args.ca.read_bytes() if args.ca else None
 
     print(f"QCSS remote smoke test -> {args.target} ({'TLS' if ca else 'plaintext'}, "
           f"{'token' if args.token else 'no token'}) from {platform.node()}")
-    with QcssClient(args.target, tls_ca=ca, token=args.token, timeout_s=60) as client:
-        smoke = Smoke(client, args.token, args.target, ca)
+    try:
+        client = QcssClient(args.target, tls_ca=ca, token=args.token, timeout_s=60, insecure=args.insecure)
+    except ValueError as err:
+        print(f"error: {err}")
+        return 2
+    with client:
+        smoke = Smoke(client, args.token, args.target, ca, args.insecure)
         smoke.run_all()
     passed = sum(s["status"] == "PASS" for s in smoke.steps)
     print(f"\n{passed}/{len(smoke.steps)} steps passed")
