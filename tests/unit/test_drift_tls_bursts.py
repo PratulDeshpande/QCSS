@@ -78,3 +78,11 @@ def test_tls_bath_extra_decay():
     bath.step(3600.0)  # 1 hour
     gamma_later = bath.extra_gamma1_per_us(5.0)
     assert gamma_later >= 0.0
+
+
+def test_the_burst_arrival_history_stays_bounded_on_a_long_running_chip():
+    from qcss.device.bursts import MAX_ARRIVAL_HISTORY
+    model = BurstModel(chip_area_cm2=2.25, rng=np.random.default_rng(1))
+    model.advance_to(30 * 86400.0)                          # a month: ~200k arrivals at 0.08 Hz
+    assert len(model.arrival_times_s) == MAX_ARRIVAL_HISTORY
+    assert model.arrival_times_s[-1] <= 30 * 86400.0 < model._next_s     # the most recent ones are kept

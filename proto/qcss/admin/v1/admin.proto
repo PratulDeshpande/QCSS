@@ -1,0 +1,153 @@
+syntax = "proto3";
+
+package qcss.admin.v1;
+
+import "qcss/v1/device.proto";
+import "qcss/v1/job.proto";
+import "qcss/v1/result.proto";
+
+// Operator and CI controls of the simulated lab. Served on its own address with its own token,
+// never on the instrument link: a lab client cannot see or reach any of this.
+service AdminService {
+  // Physics scenarios on the hidden chip state.
+  rpc KillQubit(KillQubitRequest) returns (KillQubitResponse);
+  rpc ReviveQubit(ReviveQubitRequest) returns (ReviveQubitResponse);
+  rpc DriftStep(DriftStepRequest) returns (DriftStepResponse);
+  rpc TlsCollision(TlsCollisionRequest) returns (TlsCollisionResponse);
+  rpc Burst(BurstRequest) returns (BurstResponse);
+  rpc FreezeDrift(FreezeDriftRequest) returns (FreezeDriftResponse);
+  rpc ClearScenarios(ClearScenariosRequest) returns (ClearScenariosResponse);
+  // How the simulator runs.
+  rpc GetMode(GetModeRequest) returns (GetModeResponse);
+  rpc SetMode(SetModeRequest) returns (SetModeResponse);
+  // What only the simulator knows.
+  rpc ReadTruth(ReadTruthRequest) returns (ReadTruthResponse);
+  rpc InspectJob(InspectJobRequest) returns (InspectJobResponse);
+  // Faults of the instrument itself, seen by its client as a misbehaving instrument.
+  rpc InjectInstrumentFault(InjectInstrumentFaultRequest) returns (InjectInstrumentFaultResponse);
+  rpc ClearInstrumentFaults(ClearInstrumentFaultsRequest) returns (ClearInstrumentFaultsResponse);
+}
+
+message KillQubitRequest {
+  uint32 qubit_index = 1;
+}
+
+message KillQubitResponse {}
+
+message ReviveQubitRequest {
+  uint32 qubit_index = 1;
+}
+
+message ReviveQubitResponse {}
+
+message DriftStepRequest {
+  uint32 qubit_index = 1;
+  double delta_frequency_hz = 2;
+  // Multiplies T1; 0 means unchanged.
+  double t1_factor = 3;
+}
+
+message DriftStepResponse {}
+
+message TlsCollisionRequest {
+  uint32 qubit_index = 1;
+  // Defect coupling and linewidth; 0 means the default (0.5 MHz, 1 MHz).
+  double coupling_hz = 2;
+  double linewidth_hz = 3;
+  double detuning_hz = 4;
+}
+
+message TlsCollisionResponse {}
+
+message BurstRequest {
+  uint32 qubit_index = 1;
+  // Peak extra decay rate; 0 means the default (2 per microsecond).
+  double peak_gamma_per_s = 2;
+}
+
+message BurstResponse {}
+
+message FreezeDriftRequest {
+  bool frozen = 1;
+}
+
+message FreezeDriftResponse {}
+
+message ClearScenariosRequest {}
+
+message ClearScenariosResponse {}
+
+message Mode {
+  // Lab seconds per wall second, between jobs and while executing (0 = frozen chip, unpaced execution).
+  double time_scale = 1;
+  // Honour Job.random_seed so CI can replay shots (a real instrument never does).
+  bool deterministic = 2;
+  // Physics tier the chassis uses for every job; UNSPECIFIED honours each job's requested tier.
+  qcss.v1.FidelityTier tier_policy = 3;
+}
+
+message GetModeRequest {}
+
+message GetModeResponse {
+  Mode mode = 1;
+  uint64 global_seed = 2;
+}
+
+message SetModeRequest {
+  Mode mode = 1;
+}
+
+message SetModeResponse {
+  Mode mode = 1;
+}
+
+message QubitTruth {
+  uint32 qubit_index = 1;
+  double frequency_hz = 2;
+  double t1_s = 3;
+  bool dead = 4;
+}
+
+message ReadTruthRequest {}
+
+message ReadTruthResponse {
+  double lab_time_s = 1;
+  repeated QubitTruth qubits = 2;
+  // The full error model as the simulator computes it.
+  qcss.v1.DeviceProperties properties = 3;
+}
+
+message InspectJobRequest {
+  string job_id = 1;
+}
+
+message InspectJobResponse {
+  qcss.v1.FidelityTier tier_used = 1;
+  qcss.v1.NoiseFidelity noise_fidelity = 2;
+  uint64 calibration_epoch = 3;
+  repeated string warnings = 4;
+}
+
+enum InstrumentFault {
+  INSTRUMENT_FAULT_UNSPECIFIED = 0;
+  // The next `count` calls stall for `duration_s` before being served.
+  INSTRUMENT_FAULT_HANG = 1;
+  // The next `count` calls fail as if the connection dropped.
+  INSTRUMENT_FAULT_DROP = 2;
+  // The instrument reboots: running jobs fail and every call fails for `duration_s`.
+  INSTRUMENT_FAULT_REBOOT = 3;
+  // The next `count` submissions take `duration_s` longer to upload.
+  INSTRUMENT_FAULT_SLOW_UPLOAD = 4;
+}
+
+message InjectInstrumentFaultRequest {
+  InstrumentFault fault = 1;
+  uint32 count = 2;
+  double duration_s = 3;
+}
+
+message InjectInstrumentFaultResponse {}
+
+message ClearInstrumentFaultsRequest {}
+
+message ClearInstrumentFaultsResponse {}

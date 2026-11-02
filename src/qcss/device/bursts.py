@@ -5,6 +5,10 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+# Recent arrival times kept for inspection; older ones are dropped so a long-running chip (and its
+# saved state) does not grow without limit.
+MAX_ARRIVAL_HISTORY = 1000
+
 
 @dataclass
 class Burst:
@@ -42,6 +46,8 @@ class BurstModel:
             self.events.append(Burst(self._next_s, xy, peak))
             self.arrival_times_s.append(self._next_s)
             self._next_s += float(self.rng.exponential(1.0 / self.rate_hz))
+        if len(self.arrival_times_s) > MAX_ARRIVAL_HISTORY:
+            del self.arrival_times_s[:-MAX_ARRIVAL_HISTORY]
         self.events = [e for e in self.events if t_s - e.t0_s < 10 * self.tau_rec_s]
 
     def extra_gamma1_per_us(self, t_s: float, qubit_xy_mm: np.ndarray) -> np.ndarray:

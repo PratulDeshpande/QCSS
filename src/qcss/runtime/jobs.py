@@ -16,6 +16,7 @@ from typing import Any
 
 from google.protobuf.timestamp_pb2 import Timestamp
 
+from qcss.runtime.calibration_store import CalibrationEpochError
 from qcss.v1 import job_pb2, result_pb2
 
 # Runner signature: yields ResultChunk objects and checks cancel event between chunks.
@@ -23,6 +24,10 @@ Runner = Callable[[str, job_pb2.Job, asyncio.Event], AsyncIterator[result_pb2.Re
 # Validator: raises HardwareValidationError / TierRoutingError / CalibrationEpochError, and may return an
 # info object with tier_used, noise_fidelity and calibration_epoch for the job status.
 Validator = Callable[[job_pb2.Job], Awaitable[Any]]
+
+
+# What a lab client is told when the simulation itself fails: an instrument reports a fault, not its insides.
+INSTRUMENT_FAULT = "execution failed: instrument fault"
 
 
 class ResultsEvictedError(LookupError):
@@ -52,13 +57,19 @@ class _JobRecord:
     retained_bytes: int = 0
     delivered: int = 0                    # absolute count of chunks the furthest reader has taken
     changed: asyncio.Condition = field(default_factory=asyncio.Condition)
+    failure: str = ""                     # what went wrong inside the simulator (admin channel only)
 
 
 class JobManager:
     def __init__(self, runner: Runner, validator: Validator, *,
                  max_buffered_chunks: int = 64, max_concurrent_jobs: int = 2,
-                 max_retained_jobs: int = 256, max_retained_bytes_per_job: int = 256 << 20) -> None:
+                 max_retained_jobs: int = 256, max_retained_bytes_per_job: int = 256 << 20,
+                 expose_diagnostics: bool = True) -> None:
+        """expose_diagnostics: copy the simulator's tier and noise fidelity into JobStatus. A lab chassis
+        turns it off (instruments report neither); the admin channel reads them through info()."""
         self._runner = runner
+        self._expose = expose_diagnostics
+        self.max_concurrent_jobs = max_concurrent_jobs
         self._validator = validator
         self._jobs: dict[str, _JobRecord] = {}
         self._queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
@@ -73,7 +84,7 @@ class JobManager:
         info = await self._validator(job)         # raises -> INVALID_ARGUMENT / FAILED_PRECONDITION
         job_id = uuid.uuid4().hex
         st = result_pb2.JobStatus(job_id=job_id, state=result_pb2.JOB_STATE_QUEUED, submitted_at=_now())
-        if info is not None:
+        if info is not None and self._expose:
             st.tier_used = info.tier_used
             st.noise_fidelity = info.noise_fidelity
         rec = _JobRecord(job_id, job, st, info=info)
@@ -89,6 +100,14 @@ class JobManager:
     def info(self, job_id: str) -> Any:
         """What the submit-time validator reported (tier, fidelity, calibration epoch), if anything."""
         return self._jobs[job_id].info
+
+    @property
+    def expose_diagnostics(self) -> bool:
+        return self._expose
+
+    def failure_detail(self, job_id: str) -> str:
+        """Why a job failed inside the simulator ('' if it did not): for the admin channel."""
+        return self._jobs[job_id].failure
 
     def status(self, job_id: str) -> result_pb2.JobStatus:
         return self._jobs[job_id].status
@@ -124,6 +143,13 @@ class JobManager:
                     rec.delivered = i
                     rec.changed.notify_all()
             yield chunk
+
+    def abort_all(self, reason: str) -> None:
+        """Fail every unfinished job, e.g. when the instrument reboots and loses what it was running."""
+        for rec in list(self._jobs.values()):
+            if not rec.finished.is_set():
+                rec.cancel.set()
+                self._finish(rec, result_pb2.JOB_STATE_FAILED, reason)
 
     @staticmethod
     def _wake(rec: _JobRecord) -> None:
@@ -171,8 +197,11 @@ class JobManager:
                         rec.changed.notify_all()
                 self._finish(rec, result_pb2.JOB_STATE_CANCELLED if rec.cancel.is_set()
                              else result_pb2.JOB_STATE_COMPLETED)
+            except CalibrationEpochError as exc:  # recalibrated while queued: the client must re-plan
+                self._finish(rec, result_pb2.JOB_STATE_REJECTED, f"CALIBRATION_EPOCH: {exc}")
             except Exception as exc:              # noqa: BLE001
-                self._finish(rec, result_pb2.JOB_STATE_FAILED, repr(exc))
+                rec.failure = repr(exc)
+                self._finish(rec, result_pb2.JOB_STATE_FAILED, rec.failure if self._expose else INSTRUMENT_FAULT)
 
     async def close(self) -> None:
         for w in self._workers:

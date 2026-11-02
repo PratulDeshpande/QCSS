@@ -39,6 +39,7 @@ class GateEvent:
     clifford: np.ndarray | None = None     # nearest Clifford when within CLIFFORD_FIDELITY_MIN
     clifford_fidelity: float = 0.0
     rz_angles: list[float] = field(default_factory=list)
+    driven: tuple[int, ...] | None = None  # qubits the pulse acts on directly (default: all of `qubits`)
 
     @property
     def is_clifford(self) -> bool:
@@ -124,6 +125,21 @@ def lift_multi(n_qubits: int, dt_ns: float, n_samples: int, detunings_rad_ns: li
     uc = u[np.ix_(comp, comp)]
     leakage = float(1.0 - np.mean(np.sum(np.abs(uc) ** 2, axis=0)))
     return uc, leakage
+
+
+def shift_lift_start(u: np.ndarray, frame_rad_ns: list[float], tau_ns: float) -> np.ndarray:
+    """A drive-free lift_multi result moved from start t0 to t0 + tau, exactly.
+
+    Without drives, time enters H(t) only through the exchange phases e^{i(w_q - w_p) t}, so
+    H(t + tau) = R^dag H(t) R with R = exp(-i tau sum_q w_q n_q), hence U(t0 + tau) = R^dag U(t0) R.
+    R is diagonal, and so is its restriction to the computational states (big-endian bits).
+    """
+    if tau_ns == 0.0:
+        return u
+    n = len(frame_rad_ns)
+    bits = (np.arange(2 ** n)[:, None] >> np.arange(n - 1, -1, -1)) & 1
+    phase = np.exp(1j * tau_ns * (bits @ np.asarray(frame_rad_ns, dtype=float)))
+    return phase[:, None] * u * np.conj(phase)[None, :]
 
 
 # ----------------------------------------------------------------------------- Cliffords

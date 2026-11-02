@@ -15,8 +15,8 @@ qubits:
     phi_offset: 0.0
     t1_us: 65.0
     t2_star_us: 45.0
-    t_eff_mk: 40.0
-    p_excited: 0.002
+    t_eff_mk: 60.0                       # typical effective qubit temperature: 1-3 % residual excitation
+    p_excited: 0.017
     rabi_max_ghz: 0.05
     xy_mm: [0.0, 0.0]
   - qubit_index: 1
@@ -26,8 +26,8 @@ qubits:
     phi_offset: 0.0
     t1_us: 58.0
     t2_star_us: 40.0
-    t_eff_mk: 40.0
-    p_excited: 0.002
+    t_eff_mk: 60.0                       # typical effective qubit temperature: 1-3 % residual excitation
+    p_excited: 0.017
     rabi_max_ghz: 0.05
     xy_mm: [1.5, 0.0]
   - qubit_index: 2
@@ -37,8 +37,8 @@ qubits:
     phi_offset: 0.0
     t1_us: 70.0
     t2_star_us: 50.0
-    t_eff_mk: 40.0
-    p_excited: 0.002
+    t_eff_mk: 60.0                       # typical effective qubit temperature: 1-3 % residual excitation
+    p_excited: 0.017
     rabi_max_ghz: 0.05
     xy_mm: [0.75, 1.3]
   - qubit_index: 3
@@ -48,8 +48,8 @@ qubits:
     phi_offset: 0.0
     t1_us: 52.0
     t2_star_us: 35.0
-    t_eff_mk: 40.0
-    p_excited: 0.002
+    t_eff_mk: 60.0                       # typical effective qubit temperature: 1-3 % residual excitation
+    p_excited: 0.017
     rabi_max_ghz: 0.05
     xy_mm: [2.25, 1.3]
   - qubit_index: 4
@@ -59,8 +59,8 @@ qubits:
     phi_offset: 0.0
     t1_us: 60.0
     t2_star_us: 42.0
-    t_eff_mk: 40.0
-    p_excited: 0.002
+    t_eff_mk: 60.0                       # typical effective qubit temperature: 1-3 % residual excitation
+    p_excited: 0.017
     rabi_max_ghz: 0.05
     xy_mm: [1.5, 2.6]
 couplers:

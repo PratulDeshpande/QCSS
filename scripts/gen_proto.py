@@ -1,4 +1,4 @@
-"""Generate src/qcss/v1/*_pb2.py, *_pb2.pyi and control_service_pb2_grpc.py from proto/qcss/v1/*.proto.
+"""Generate the *_pb2.py, *_pb2.pyi and service *_pb2_grpc.py modules under src/qcss from proto/qcss/**/*.proto.
 
 Offline and Windows-friendly: runs grpc_tools.protoc (dev dependency), so the .proto files
 are the single source of truth. Generated code is committed; CI regenerates and fails on a
@@ -16,12 +16,12 @@ from grpc_tools import protoc
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 PROTO = ROOT / "proto"
 OUT = ROOT / "src"
-SERVICES = {"control_service.proto"}          # only files with a service get a *_pb2_grpc.py
+SERVICES = {"control_service.proto", "admin.proto"}          # only files with a service get a *_pb2_grpc.py
 
 
 def main() -> int:
     include = pathlib.Path(protoc.__file__).parent / "_proto"
-    files = sorted(p.relative_to(PROTO).as_posix() for p in (PROTO / "qcss" / "v1").glob("*.proto"))
+    files = sorted(p.relative_to(PROTO).as_posix() for p in (PROTO / "qcss").rglob("*.proto"))
     rc = protoc.main(["grpc_tools.protoc", f"-I{PROTO}", f"-I{include}", f"--python_out={OUT}",
                       f"--pyi_out={OUT}", f"--grpc_python_out={OUT}", *files])
     if rc != 0:
@@ -30,7 +30,7 @@ def main() -> int:
         name = pathlib.PurePosixPath(f).name
         if name not in SERVICES:
             (OUT / pathlib.PurePosixPath(f).with_name(name.replace(".proto", "_pb2_grpc.py"))).unlink(missing_ok=True)
-    print(f"generated {len(files)} proto modules into {OUT / 'qcss' / 'v1'}")
+    print(f"generated {len(files)} proto modules under {OUT / 'qcss'}")
     return 0
 
 

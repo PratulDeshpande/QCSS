@@ -74,10 +74,15 @@ class Smoke:
         d = self.c.describe()
         ids = {ch.channel_id for ch in d.channels}
         assert {"xy_q0", "ro_q0"} <= ids, f"xy_q0/ro_q0 missing from {sorted(ids)}"
-        p = self.c.properties()
+        head = f"{d.profile_name} ({d.vendor}), {len(ids)} channels"
+        try:
+            p = self.c.properties()
+        except QcssRpcError as err:
+            if err.code is not grpc.StatusCode.UNIMPLEMENTED:
+                raise
+            return f"{head}; no device properties (a lab chassis does not serve them)"
         q0 = next(q for q in p.qubits if q.qubit_index == 0)
-        return (f"{d.profile_name} ({d.vendor}), {len(ids)} channels; q0 T1={q0.t1_s * 1e6:.1f} us, "
-                f"P(0|1)={q0.prob_meas0_prep1:.3f} [{p.source}]")
+        return f"{head}; q0 T1={q0.t1_s * 1e6:.1f} us, P(0|1)={q0.prob_meas0_prep1:.3f} [{p.source}]"
 
     def pi_pulse(self) -> str:
         st, chunks = self._run(make_job(500))

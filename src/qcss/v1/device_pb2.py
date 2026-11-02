@@ -25,23 +25,23 @@ _sym_db = _symbol_database.Default()
 from google.protobuf import timestamp_pb2 as google_dot_protobuf_dot_timestamp__pb2
 
 
-DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14qcss/v1/device.proto\x12\x07qcss.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa6\x01\n\x0b\x43hannelInfo\x12\x12\n\nchannel_id\x18\x01 \x01(\t\x12\"\n\x04kind\x18\x02 \x01(\x0e\x32\x14.qcss.v1.ChannelKind\x12\x14\n\x0cgenerator_id\x18\x03 \x01(\t\x12\x0f\n\x07port_id\x18\x04 \x01(\t\x12\x10\n\x08\x66rame_id\x18\x05 \x01(\t\x12\x0e\n\x06qubits\x18\x06 \x03(\r\x12\x16\n\x0esample_rate_hz\x18\x07 \x01(\x01\"\xbc\x01\n\x11\x44\x65viceDescription\x12\x14\n\x0cprofile_name\x18\x01 \x01(\t\x12\x0e\n\x06vendor\x18\x02 \x01(\t\x12\x0f\n\x07tick_hz\x18\x03 \x01(\t\x12&\n\x08\x63hannels\x18\x04 \x03(\x0b\x32\x14.qcss.v1.ChannelInfo\x12 \n\x18max_discriminated_states\x18\x05 \x01(\r\x12&\n\x1e\x64\x65\x66\x61ult_repetition_delay_ticks\x18\x06 \x01(\x04\"\xf4\x01\n\x0fQubitProperties\x12\x13\n\x0bqubit_index\x18\x01 \x01(\r\x12\x14\n\x0c\x66requency_hz\x18\x02 \x01(\x01\x12\x0c\n\x04t1_s\x18\x03 \x01(\x01\x12\x11\n\tt2_star_s\x18\x04 \x01(\x01\x12\x18\n\x10prob_meas1_prep0\x18\x05 \x01(\x01\x12\x18\n\x10prob_meas0_prep1\x18\x06 \x01(\x01\x12\x1f\n\x17single_qubit_gate_error\x18\x07 \x01(\x01\x12$\n\x1csingle_qubit_gate_duration_s\x18\x08 \x01(\x01\x12\x1a\n\x12readout_duration_s\x18\t \x01(\x01\"v\n\x0ePairProperties\x12\x0e\n\x06qubits\x18\x01 \x03(\r\x12\x13\n\x0b\x63oupling_hz\x18\x02 \x01(\x01\x12\x1c\n\x14two_qubit_gate_error\x18\x03 \x01(\x01\x12!\n\x19two_qubit_gate_duration_s\x18\x04 \x01(\x01\"\xc0\x01\n\x10\x44\x65viceProperties\x12/\n\x0bmeasured_at\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x0e\n\x06source\x18\x02 \x01(\t\x12\x19\n\x11\x63\x61libration_epoch\x18\x03 \x01(\x04\x12(\n\x06qubits\x18\x04 \x03(\x0b\x32\x18.qcss.v1.QubitProperties\x12&\n\x05pairs\x18\x05 \x03(\x0b\x32\x17.qcss.v1.PairProperties*\x96\x01\n\x0b\x43hannelKind\x12\x1c\n\x18\x43HANNEL_KIND_UNSPECIFIED\x10\x00\x12\x16\n\x12\x43HANNEL_KIND_DRIVE\x10\x01\x12\x15\n\x11\x43HANNEL_KIND_FLUX\x10\x02\x12\x18\n\x14\x43HANNEL_KIND_READOUT\x10\x03\x12 \n\x1c\x43HANNEL_KIND_CROSS_RESONANCE\x10\x04\x62\x06proto3')
+DESCRIPTOR = _descriptor_pool.Default().AddSerializedFile(b'\n\x14qcss/v1/device.proto\x12\x07qcss.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xbf\x01\n\x0b\x43hannelInfo\x12\x12\n\nchannel_id\x18\x01 \x01(\t\x12\"\n\x04kind\x18\x02 \x01(\x0e\x32\x14.qcss.v1.ChannelKind\x12\x14\n\x0cgenerator_id\x18\x03 \x01(\t\x12\x0f\n\x07port_id\x18\x04 \x01(\t\x12\x10\n\x08\x66rame_id\x18\x05 \x01(\t\x12\x0e\n\x06qubits\x18\x06 \x03(\r\x12\x16\n\x0esample_rate_hz\x18\x07 \x01(\x01\x12\x17\n\x0flo_frequency_hz\x18\x08 \x01(\x01\"\xbc\x01\n\x11\x44\x65viceDescription\x12\x14\n\x0cprofile_name\x18\x01 \x01(\t\x12\x0e\n\x06vendor\x18\x02 \x01(\t\x12\x0f\n\x07tick_hz\x18\x03 \x01(\t\x12&\n\x08\x63hannels\x18\x04 \x03(\x0b\x32\x14.qcss.v1.ChannelInfo\x12 \n\x18max_discriminated_states\x18\x05 \x01(\r\x12&\n\x1e\x64\x65\x66\x61ult_repetition_delay_ticks\x18\x06 \x01(\x04\"\xf4\x01\n\x0fQubitProperties\x12\x13\n\x0bqubit_index\x18\x01 \x01(\r\x12\x14\n\x0c\x66requency_hz\x18\x02 \x01(\x01\x12\x0c\n\x04t1_s\x18\x03 \x01(\x01\x12\x11\n\tt2_star_s\x18\x04 \x01(\x01\x12\x18\n\x10prob_meas1_prep0\x18\x05 \x01(\x01\x12\x18\n\x10prob_meas0_prep1\x18\x06 \x01(\x01\x12\x1f\n\x17single_qubit_gate_error\x18\x07 \x01(\x01\x12$\n\x1csingle_qubit_gate_duration_s\x18\x08 \x01(\x01\x12\x1a\n\x12readout_duration_s\x18\t \x01(\x01\"v\n\x0ePairProperties\x12\x0e\n\x06qubits\x18\x01 \x03(\r\x12\x13\n\x0b\x63oupling_hz\x18\x02 \x01(\x01\x12\x1c\n\x14two_qubit_gate_error\x18\x03 \x01(\x01\x12!\n\x19two_qubit_gate_duration_s\x18\x04 \x01(\x01\"\xc0\x01\n\x10\x44\x65viceProperties\x12/\n\x0bmeasured_at\x18\x01 \x01(\x0b\x32\x1a.google.protobuf.Timestamp\x12\x0e\n\x06source\x18\x02 \x01(\t\x12\x19\n\x11\x63\x61libration_epoch\x18\x03 \x01(\x04\x12(\n\x06qubits\x18\x04 \x03(\x0b\x32\x18.qcss.v1.QubitProperties\x12&\n\x05pairs\x18\x05 \x03(\x0b\x32\x17.qcss.v1.PairProperties*\x96\x01\n\x0b\x43hannelKind\x12\x1c\n\x18\x43HANNEL_KIND_UNSPECIFIED\x10\x00\x12\x16\n\x12\x43HANNEL_KIND_DRIVE\x10\x01\x12\x15\n\x11\x43HANNEL_KIND_FLUX\x10\x02\x12\x18\n\x14\x43HANNEL_KIND_READOUT\x10\x03\x12 \n\x1c\x43HANNEL_KIND_CROSS_RESONANCE\x10\x04\x62\x06proto3')
 
 _globals = globals()
 _builder.BuildMessageAndEnumDescriptors(DESCRIPTOR, _globals)
 _builder.BuildTopDescriptorsAndMessages(DESCRIPTOR, 'qcss.v1.device_pb2', _globals)
 if not _descriptor._USE_C_DESCRIPTORS:
   DESCRIPTOR._loaded_options = None
-  _globals['_CHANNELKIND']._serialized_start=989
-  _globals['_CHANNELKIND']._serialized_end=1139
+  _globals['_CHANNELKIND']._serialized_start=1014
+  _globals['_CHANNELKIND']._serialized_end=1164
   _globals['_CHANNELINFO']._serialized_start=67
-  _globals['_CHANNELINFO']._serialized_end=233
-  _globals['_DEVICEDESCRIPTION']._serialized_start=236
-  _globals['_DEVICEDESCRIPTION']._serialized_end=424
-  _globals['_QUBITPROPERTIES']._serialized_start=427
-  _globals['_QUBITPROPERTIES']._serialized_end=671
-  _globals['_PAIRPROPERTIES']._serialized_start=673
-  _globals['_PAIRPROPERTIES']._serialized_end=791
-  _globals['_DEVICEPROPERTIES']._serialized_start=794
-  _globals['_DEVICEPROPERTIES']._serialized_end=986
+  _globals['_CHANNELINFO']._serialized_end=258
+  _globals['_DEVICEDESCRIPTION']._serialized_start=261
+  _globals['_DEVICEDESCRIPTION']._serialized_end=449
+  _globals['_QUBITPROPERTIES']._serialized_start=452
+  _globals['_QUBITPROPERTIES']._serialized_end=696
+  _globals['_PAIRPROPERTIES']._serialized_start=698
+  _globals['_PAIRPROPERTIES']._serialized_end=816
+  _globals['_DEVICEPROPERTIES']._serialized_start=819
+  _globals['_DEVICEPROPERTIES']._serialized_end=1011
 # @@protoc_insertion_point(module_scope)

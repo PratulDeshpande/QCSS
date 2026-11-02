@@ -1,0 +1,31 @@
+# Full bring-up, daily and after a cooldown: find the resonators and qubits, then gates, coherence and RB.
+platform: qcss_qblox_5q
+actions:
+  - id: resonator_spectroscopy
+    operation: resonator_spectroscopy
+    parameters: {freq_width: 6000000, freq_step: 200000, nshots: 500, relaxation_time: 300000}
+  - id: qubit_spectroscopy
+    operation: qubit_spectroscopy
+    parameters: {freq_width: 20000000, freq_step: 500000, drive_duration: 2000, drive_amplitude: 0.01,
+                 nshots: 500, relaxation_time: 300000}
+  - id: rabi
+    operation: rabi_amplitude
+    parameters: {min_amp: 0.0, max_amp: 0.95, step_amp: 0.025, nshots: 1000, relaxation_time: 300000}
+  - id: ramsey
+    operation: ramsey
+    parameters: {delay_between_pulses_start: 16, delay_between_pulses_end: 20000, delay_between_pulses_step: 400,
+                 detuning: 1000000, nshots: 1000, relaxation_time: 300000}
+  - id: t1
+    operation: t1
+    parameters: {delay_before_readout_start: 16, delay_before_readout_end: 240000, delay_before_readout_step: 6000,
+                 nshots: 1000, relaxation_time: 300000}
+  - id: t2
+    operation: t2
+    parameters: {delay_between_pulses_start: 16, delay_between_pulses_end: 60000, delay_between_pulses_step: 1500,
+                 nshots: 1000, relaxation_time: 300000}
+  - id: single_shot
+    operation: single_shot_classification
+    parameters: {nshots: 2000}
+  - id: rb
+    operation: standard_rb
+    parameters: {depths: [1, 5, 10, 20, 50, 100], niter: 20, nshots: 200, relaxation_time: 300000}

@@ -34,7 +34,9 @@ jobs:
         with:
           python-version: "3.13"
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install -e . --group dev
+      # The virtual lab (Qibolab driver, platforms, technician, acceptance harness) imports qibolab and qibocal:
+      # type-check against the lab stack, not the bare core.
+      - run: python -m pip install -e ".[qibocal]" -e integrations/qcss_qibolab --group dev
       - run: pyright
 
   proto:
@@ -68,3 +70,19 @@ jobs:
       - run: python -m pip install --upgrade pip
       - run: python -m pip install -e . --group dev
       - run: python -m pytest
+
+  virtual-lab:
+    # The core test job has no Qibolab/Qibocal, so it skips the virtual lab. This job installs the lab stack the way a
+    # lab server would (the qibosoq client is a git pin: its PyPI release forces numpy 1.26) and runs the full suite.
+    name: Virtual lab (Qibolab + Qibocal, Python 3.13)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install -e ".[qibocal]" -e integrations/qcss_qibolab --group dev
+      - run: python -m pip install "qibosoq @ git+https://github.com/qiboteam/qibosoq@2c376278785e6ae8aae1f13d1b0b467e067aaf7d"
+      - run: python -m pytest -n auto -rs

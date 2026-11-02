@@ -6,6 +6,88 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+QCSS becomes a virtual lab: Quark reaches it exactly as it reaches a lab, through Qibolab, and
+cannot tell it is a simulator.
+
+### Added
+
+* `qcss-qibolab`: a Qibolab `Controller` for QCSS instruments, and the platform `qcss_qblox_5q`.
+* A Qibosoq-compatible board face (`qcss serve --board-listen`) and the platform `qcss_rfsoc_5q`,
+  which uses Qibolab's own unmodified RFSoC driver. Only the board address differs from a lab's platform.
+* The virtual technician, `qcss technician run|request`. It runs the real Qibocal on a schedule and on
+  request, and installs each calibration atomically. The runcards are `quick`, `full` and `cz`.
+* The admin channel, `qcss admin ...`, on its own address and token. It covers:
+  * scenarios: kill or revive a qubit, drift step, TLS collision, burst, freeze;
+  * modes: time scale, deterministic, physics tier;
+  * the chip's true state, and job inspection;
+  * instrument faults: hang, drop, reboot, slow upload.
+* The chip's state persists across chassis restarts (`--state-dir`, plain JSON), and downtime
+  counts as lab time.
+* Wall-clock pacing (`--time-scale`): the chip drifts while idle, and jobs take instrument time.
+* Client-resolved sweep points (`Job.program_points`). `ChannelInfo.lo_frequency_hz`. Readout-frame
+  frequencies set each point's probe frequency.
+* `qick_zcu216_5q` profile.
+* Acceptance harness standing in for Quark's Qibolab adapter, and an indistinguishability scan.
+* Acceptance checks through Qibolab, ported from the `quark_qcss` conformance run: x reads 1, idle
+  reads 0, sx·sx reads 1 and sx·rz(π)·sx reads 0, simultaneous x on two qubits, non-native gates
+  refused, a stable calibration set, a killed qubit collapsing its outcomes, and a reboot failing one
+  call before the next job runs.
+
+### Changed
+
+* **Breaking:** `qcss serve` now behaves like a lab chassis by default:
+  * entropy seeds (`--seed` is optional), and `random_seed` is honoured only with `--deterministic`;
+  * the operator picks the tier (`--tier`, default auto);
+  * no tier or fidelity in `JobStatus`, and no reflection unless `--debug-reflection`;
+  * a generic message for internal failures (the details are on the admin channel).
+* `qblox_cluster_5q` is wired as a lab wires a cluster: one drive and flux line and sequencer per
+  qubit, and five readout sequencers on one feedline.
+* AUTO routing prefers exact T1B up to 26 qubits. T1A (Pauli-twirled) is used only for scale, or
+  on request.
+* `transmon_5q` sits at a realistic T_eff of 60 mK (1.7 % residual excitation).
+
+### Fixed
+
+* Two clients could race a calibration upload against a job. The Qibolab driver now pins each job
+  to the settings its own `play` uploaded (`expected_calibration_epoch`).
+* A chassis now runs one job at a time, as one chip does.
+* The chip state is guarded by a lock: concurrent readers advance it once, and admin scenarios first
+  bring the chip to the current lab time, so an injected burst hits now.
+* Overlapping pulses are judged only on qubits that are driven or flux-tuned, so parallel circuits on
+  five qubits are no longer refused.
+* Routing refusals on the lab link name no tier or engine class (`INSTRUMENT_RESOURCES`).
+* The technician's shift no longer blocks on a malformed or failing request (it moves to `failed/`),
+  runs every requested scope, and backs off a failing runcard.
+* An admin channel beside a tokened lab link must have its own, different token.
+* The acceptance harness evaluates OpenQASM angle expressions (`pi`, `tau`, `-pi/2`, ...).
+* Gate tiers lifted overlapping pulses separately, so a flux shift under a drive was ignored. Such
+  jobs now run at pulse level, or are refused.
+* Gate tiers dropped leakage, so CZ chevrons were invisible. Leaky jobs now run at T2.
+* T1B ignored temperature. It now uses generalized amplitude damping and a thermal start.
+* A stale calibration epoch at execution start now ends the job `REJECTED` (`CALIBRATION_EPOCH`).
+* Every chunk of a job now uses the calibration uploaded at its start.
+* The lab clock now advances between jobs.
+* The planning dry run no longer simulates readout.
+* Repeated flux pulses are lifted once per chunk, with an exact frame shift.
+* The technician installs a calibration set whole: if a file cannot be replaced (on Windows, a reader
+  holding it open is enough), the files already replaced are rolled back. It also refuses fits that no
+  instrument could play (amplitude beyond full scale, non-positive duration or frequency).
+* A dropped board connection is now a TCP reset (`ConnectionResetError` in the qibosoq client), as a
+  rebooting board gives, not an empty reply.
+* `qcss serve --board-listen` refuses anything but TCP `host:port` before starting, since the qibosoq
+  client connects over TCP only.
+* A job whose simulation runs slower than real time no longer winds the lab clock back: the chip ages
+  by the wall time that passed.
+* T1B thermalises a warm qubit exactly once it has idled 20 T1, so a killed qubit (very short T1) no
+  longer costs a step per T1/10 of idle.
+* CI type-checks against the lab stack (Qibolab, Qibocal) and runs the virtual-lab tests in their own
+  job; `cryptography` is a dev dependency, so the TLS tests run and pyright is clean.
+
+### Deprecated
+
+* `integrations/quark_qcss`, the Quark-side gRPC driver. Quark reaches QCSS through Qibolab now. It
+  will be removed in the next release.
+
 ## [0.1.0] - 2026-10-19
 
 First public release.

@@ -120,3 +120,22 @@ async def test_evicting_a_job_cancelled_while_queued_does_not_kill_the_worker():
         assert jobs.status(last).state == result_pb2.JOB_STATE_COMPLETED
     finally:
         await jobs.close()
+
+
+async def test_a_stale_calibration_epoch_at_execution_start_rejects_the_job():
+    from qcss.runtime.calibration_store import CalibrationEpochError
+
+    async def stale_at_start(job_id: str, job: job_pb2.Job, cancel: asyncio.Event):
+        raise CalibrationEpochError("job expects calibration epoch 3, current is 4")
+        yield  # pragma: no cover - makes this an async generator
+
+    jobs = JobManager(stale_at_start, validator)
+    try:
+        job_id = await jobs.submit(job_pb2.Job(num_shots=1))
+        assert await asyncio.wait_for(_drain(jobs, job_id), 5) == []
+        st = jobs.status(job_id)
+        assert st.state == result_pb2.JOB_STATE_REJECTED
+        assert st.message.startswith("CALIBRATION_EPOCH: ")
+        assert "current is 4" in st.message
+    finally:
+        await jobs.close()

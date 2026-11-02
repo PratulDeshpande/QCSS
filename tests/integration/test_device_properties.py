@@ -100,6 +100,7 @@ async def test_get_device_properties_is_unimplemented_without_a_device_model():
             with pytest.raises(grpc.aio.AioRpcError) as err:
                 await pbg.ControlServiceStub(ch).GetDeviceProperties(pb.GetDevicePropertiesRequest())
             assert err.value.code() == grpc.StatusCode.UNIMPLEMENTED
+            assert "model" not in (err.value.details() or "")     # says nothing about being a simulator
     finally:
         await server.stop(None)
         await jobs.close()

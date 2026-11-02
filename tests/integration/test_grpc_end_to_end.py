@@ -254,7 +254,7 @@ async def test_simulation_runner_with_control_service():
 
 
 @pytest.mark.anyio
-async def test_health_check_reports_serving_and_reflection_lists_service():
+async def test_health_check_reports_serving_and_debug_reflection_lists_service():
     if not _can_connect_loopback():
         pytest.skip("Loopback socket connection not permitted in current sandbox environment")
     from grpc_health.v1 import health_pb2, health_pb2_grpc
@@ -262,7 +262,7 @@ async def test_health_check_reports_serving_and_reflection_lists_service():
 
     jobs = JobManager(fake_runner, fake_validator)
     addr = f"127.0.0.1:{_free_port()}"
-    server = await serve(addr, jobs)
+    server = await serve(addr, jobs, reflection=True)
     try:
         async with grpc.aio.insecure_channel(addr) as ch:
             # typeshed types these generated stubs for sync channels only; the aio channel works at runtime
@@ -275,6 +275,26 @@ async def test_health_check_reports_serving_and_reflection_lists_service():
             async for resp in refl.ServerReflectionInfo(iter([reflection_pb2.ServerReflectionRequest(list_services="")])):
                 names = [s.name for s in resp.list_services_response.service]
             assert "qcss.v1.ControlService" in names
+    finally:
+        await server.stop(None)
+        await jobs.close()
+
+@pytest.mark.anyio
+async def test_reflection_is_off_by_default():
+    if not _can_connect_loopback():
+        pytest.skip("Loopback socket connection not permitted in current sandbox environment")
+    from grpc_reflection.v1alpha import reflection_pb2, reflection_pb2_grpc
+
+    jobs = JobManager(fake_runner, fake_validator)
+    addr = f"127.0.0.1:{_free_port()}"
+    server = await serve(addr, jobs)
+    try:
+        async with grpc.aio.insecure_channel(addr) as ch:
+            refl: Any = reflection_pb2_grpc.ServerReflectionStub(cast(Any, ch))
+            with pytest.raises(grpc.aio.AioRpcError) as err:
+                async for _ in refl.ServerReflectionInfo(iter([reflection_pb2.ServerReflectionRequest(list_services="")])):
+                    pass
+            assert err.value.code() == grpc.StatusCode.UNIMPLEMENTED
     finally:
         await server.stop(None)
         await jobs.close()

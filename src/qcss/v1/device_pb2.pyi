@@ -21,7 +21,7 @@ CHANNEL_KIND_READOUT: ChannelKind
 CHANNEL_KIND_CROSS_RESONANCE: ChannelKind
 
 class ChannelInfo(_message.Message):
-    __slots__ = ("channel_id", "kind", "generator_id", "port_id", "frame_id", "qubits", "sample_rate_hz")
+    __slots__ = ("channel_id", "kind", "generator_id", "port_id", "frame_id", "qubits", "sample_rate_hz", "lo_frequency_hz")
     CHANNEL_ID_FIELD_NUMBER: _ClassVar[int]
     KIND_FIELD_NUMBER: _ClassVar[int]
     GENERATOR_ID_FIELD_NUMBER: _ClassVar[int]
@@ -29,6 +29,7 @@ class ChannelInfo(_message.Message):
     FRAME_ID_FIELD_NUMBER: _ClassVar[int]
     QUBITS_FIELD_NUMBER: _ClassVar[int]
     SAMPLE_RATE_HZ_FIELD_NUMBER: _ClassVar[int]
+    LO_FREQUENCY_HZ_FIELD_NUMBER: _ClassVar[int]
     channel_id: str
     kind: ChannelKind
     generator_id: str
@@ -36,7 +37,8 @@ class ChannelInfo(_message.Message):
     frame_id: str
     qubits: _containers.RepeatedScalarFieldContainer[int]
     sample_rate_hz: float
-    def __init__(self, channel_id: _Optional[str] = ..., kind: _Optional[_Union[ChannelKind, str]] = ..., generator_id: _Optional[str] = ..., port_id: _Optional[str] = ..., frame_id: _Optional[str] = ..., qubits: _Optional[_Iterable[int]] = ..., sample_rate_hz: _Optional[float] = ...) -> None: ...
+    lo_frequency_hz: float
+    def __init__(self, channel_id: _Optional[str] = ..., kind: _Optional[_Union[ChannelKind, str]] = ..., generator_id: _Optional[str] = ..., port_id: _Optional[str] = ..., frame_id: _Optional[str] = ..., qubits: _Optional[_Iterable[int]] = ..., sample_rate_hz: _Optional[float] = ..., lo_frequency_hz: _Optional[float] = ...) -> None: ...
 
 class DeviceDescription(_message.Message):
     __slots__ = ("profile_name", "vendor", "tick_hz", "channels", "max_discriminated_states", "default_repetition_delay_ticks")

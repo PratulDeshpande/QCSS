@@ -206,7 +206,10 @@ class SweepPoint:
 
 
 def expand_sweeps(job: job_pb2.Job) -> list[SweepPoint]:
-    """Sweeps sharing an axis are zipped; different axes form a grid (last axis fastest)."""
+    """Sweeps sharing an axis are zipped; different axes form a grid (last axis fastest).
+    A job with program_points carries its points already resolved: one program each."""
+    if job.program_points:
+        return _program_points(job)
     axes: dict[int, list[Any]] = {}
     for s in job.sweeps:
         axes.setdefault(s.axis, []).append(s)
@@ -240,6 +243,35 @@ def expand_sweeps(job: job_pb2.Job) -> list[SweepPoint]:
             for s, vals in entries:
                 _apply_sweep_value(j, s, vals[i], errors)
         points.append(SweepPoint(tuple(idx), j))
+    if errors:
+        raise HardwareValidationError(errors)
+    return points
+
+
+def _program_points(job: job_pb2.Job) -> list[SweepPoint]:
+    errors: list[tuple[str, str]] = []
+    if job.sweeps:
+        errors.append(("job.sweeps", "a job has either sweeps or program_points, not both"))
+    ranks = {len(p.indices) for p in job.program_points}
+    if len(ranks) > 1:
+        errors.append(("job.program_points", f"indices of different lengths {sorted(ranks)}"))
+    # One template without the point programs, copied per point: copying the whole job per point
+    # would copy every other point's program too (quadratic in the number of points).
+    template = job_pb2.Job()
+    template.CopyFrom(job)
+    del template.program_points[:]
+    template.ClearField("main")
+    seen: set[tuple[int, ...]] = set()
+    points = []
+    for k, p in enumerate(job.program_points):
+        idx = tuple(p.indices)
+        if idx in seen:
+            errors.append((f"job.program_points[{k}].indices", f"{list(idx)} appears twice"))
+        seen.add(idx)
+        j = job_pb2.Job()
+        j.CopyFrom(template)
+        j.main.CopyFrom(p.main)
+        points.append(SweepPoint(idx, j))
     if errors:
         raise HardwareValidationError(errors)
     return points

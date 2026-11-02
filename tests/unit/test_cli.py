@@ -139,3 +139,38 @@ def test_cli_validate_and_run(cli_runner, tmp_path):
     run_non_cliff = cli_runner.invoke(app, ["run", str(job_file), "-p", "test_ideal_1q", "-t", "T1A"])
     assert run_non_cliff.exit_code == 1
     assert "Tier routing failed" in run_non_cliff.output
+
+
+def test_technician_request_queues_a_calibration_and_prints_its_eta(tmp_path):
+    from click.testing import CliRunner as Runner
+    result = Runner().invoke(app, ["technician", "request", "--requests-dir", str(tmp_path), "--scope", "device"])
+    assert result.exit_code == 0, result.output
+    assert "accepted" in result.output and "expected" in result.output
+    assert len(list(tmp_path.glob("*.json"))) == 1
+
+
+def test_technician_request_refuses_an_unknown_scope(tmp_path):
+    from click.testing import CliRunner as Runner
+    result = Runner().invoke(app, ["technician", "request", "--requests-dir", str(tmp_path), "--scope", "q42"])
+    assert result.exit_code != 0 and "q42" in result.output
+
+
+def test_the_technician_commands_exist_when_the_cli_runs_as_a_module():
+    import subprocess
+    import sys
+    r = subprocess.run([sys.executable, "-m", "qcss.cli", "technician", "--help"], capture_output=True, text=True,
+                       check=False)
+    assert r.returncode == 0, r.stderr
+    assert "request" in r.stdout and "run" in r.stdout
+
+
+def test_a_timed_fault_without_a_duration_is_a_usage_error():
+    r = CliRunner().invoke(app, ["admin", "fault", "hang", "--count", "3"])
+    assert r.exit_code == 2 and "--duration" in r.output
+
+
+def test_a_technician_env_entry_without_an_equals_sign_is_a_usage_error(tmp_path):
+    r = CliRunner().invoke(app, ["technician", "run", "--platforms-dir", str(tmp_path), "--platform", "p",
+                                 "--reports", str(tmp_path / "rep"), "--requests-dir", str(tmp_path / "req"),
+                                 "--env", "QCSS_ADDRESS"])
+    assert r.exit_code == 2 and "QCSS_ADDRESS" in r.output and "NAME=VALUE" in r.output

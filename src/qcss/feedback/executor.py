@@ -20,7 +20,7 @@ from qcss.core.timebase import TimeBase
 from qcss.ir.frames import TWO_PI, FrameTracker
 from qcss.ir.program import Acquire, Branch, ChannelBinding, ChannelKind, FrameOp, Play, Program
 from qcss.ir.waveforms import WaveformLibrary
-from qcss.physics.lifter import GateEvent, annotate_clifford, lift_1q, lift_multi
+from qcss.physics.lifter import GateEvent, annotate_clifford, lift_1q, lift_multi, shift_lift_start
 from qcss.signal.port_renderer import DriveChain, FluxChain
 from qcss.timing.des import DES, Prio
 
@@ -118,6 +118,8 @@ class ShotExecutor:
     def __init__(self, ctx: ExecContext) -> None:
         self.ctx = ctx
         self.lift_log: list[GateEvent] | None = None      # dry runs collect lifted events here
+        # flux lifts by (line, samples, dt): (U at start t_ref, leakage, t_ref); reused at any start (shift_lift_start)
+        self._flux_lifts: dict[tuple, tuple[np.ndarray, float, float]] = {}
 
     # ------------------------------------------------------------------ frames and rendering
     def _tracker(self) -> FrameTracker:
@@ -173,15 +175,23 @@ class ShotExecutor:
             if len(sub) > MAX_LIFT_QUTRITS:
                 raise UnliftableError(f"flux pulse '{name}' couples {len(sub)} qutrits (> {MAX_LIFT_QUTRITS})")
             pos = {k: i for i, k in enumerate(sub)}
-            flux = {pos[k]: c.qubits[k].flux_detuning(c.m_fast[k, line] * seg.samples) for k in hit}
-            u, leak = lift_multi(
-                n_qubits=len(sub), dt_ns=seg.dt_ns, n_samples=len(seg.samples),
-                detunings_rad_ns=[c.qubits[k].detuning_rad_ns for k in sub],
-                alphas_rad_ns=[c.qubits[k].alpha_rad_ns for k in sub],
-                couplings_rad_ns={(pos[a], pos[b]): j for (a, b), j in c.couplings_rad_ns.items()
-                                  if a in pos and b in pos},
-                flux=flux, frame_rad_ns=[c.qubits[k].frame_rad_ns for k in sub], t0_ns=seg.t0_ns)
-            ev = GateEvent(tuple(sub), u, seg.t0_ns, seg.t1_ns, leak, name)
+            frames = [c.qubits[k].frame_rad_ns for k in sub]
+            key = (line, np.asarray(seg.samples).tobytes(), seg.dt_ns)
+            cached = self._flux_lifts.get(key)
+            if cached is None:
+                flux = {pos[k]: c.qubits[k].flux_detuning(c.m_fast[k, line] * seg.samples) for k in hit}
+                u, leak = lift_multi(
+                    n_qubits=len(sub), dt_ns=seg.dt_ns, n_samples=len(seg.samples),
+                    detunings_rad_ns=[c.qubits[k].detuning_rad_ns for k in sub],
+                    alphas_rad_ns=[c.qubits[k].alpha_rad_ns for k in sub],
+                    couplings_rad_ns={(pos[a], pos[b]): j for (a, b), j in c.couplings_rad_ns.items()
+                                      if a in pos and b in pos},
+                    flux=flux, frame_rad_ns=frames, t0_ns=seg.t0_ns)
+                self._flux_lifts[key] = (u, leak, seg.t0_ns)
+            else:
+                u_ref, leak, t_ref = cached
+                u = shift_lift_start(u_ref, frames, seg.t0_ns - t_ref)
+            ev = GateEvent(tuple(sub), u, seg.t0_ns, seg.t1_ns, leak, name, driven=tuple(hit))
         if c.clifford_required:
             annotate_clifford(ev)
         return ev
@@ -227,6 +237,10 @@ class ShotExecutor:
         regs: dict[int, int] = {}
         ready_at: dict[int, tuple[int, str]] = {}
         segs: list[Segment] = []
+        # When each qubit's last lifted gate ends, to refuse concurrent gates on a shared qubit. Plays arrive in
+        # time order (the DES), so one end time per qubit suffices. Only the planning dry run checks: it runs
+        # every branch, so an overlapping job never reaches execution (it is routed to T2 or refused).
+        busy_until: dict[int, tuple[float, str]] = {}
         tr = self._tracker()
         ro_rng = readout_rng if readout_rng is not None else rng
         pulse_level = bool(getattr(c.engine, "pulse_level", False))
@@ -252,6 +266,14 @@ class ShotExecutor:
             else:
                 ev = self.lift(seg, op.waveform_id)
                 if self.lift_log is not None:
+                    qs = ev.driven or ev.qubits      # gates apply one after another; overlapping pulses do not
+                    for q in qs:
+                        end, prev = busy_until.get(q, (-np.inf, ""))
+                        if ev.t_start < end - 1e-9 and ev.t_end - 1e-9 > ev.t_start:
+                            raise UnliftableError(f"pulse '{ev.name}' overlaps '{prev}' on a shared qubit; "
+                                                  "concurrent pulses need pulse-level physics (T2)")
+                    for q in qs:
+                        busy_until[q] = max(busy_until.get(q, (-np.inf, "")), (ev.t_end, ev.name))
                     self.lift_log.append(ev)
                 else:
                     c.engine.apply_event(ev, rng)
@@ -282,7 +304,10 @@ class ShotExecutor:
                     self.ensemble_probs = (qs, c.engine.joint_probabilities(qs))
                     c.engine.dephase_measured(qs)
                 return
-            level = c.engine.measure(q, rng=rng) if q is not None and self.lift_log is None else 0
+            if self.lift_log is not None:            # a planning dry run: timing only, no readout physics
+                des.schedule_at(t_ready, Prio.ACQ_COMPLETE, do_acq_end, op, 0, 0, 0j, None, t_ready)
+                return
+            level = c.engine.measure(q, rng=rng) if q is not None else 0
             n = op.integration // c.adc_ticks_per_sample[op.channel_id]
             ro = c.readout[q_dev]
             out = ro.acquire(np.array([level]), n, c.t1_ns.get(q_dev, np.inf), ro_rng,

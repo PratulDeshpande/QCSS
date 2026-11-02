@@ -20,6 +20,8 @@ message ChannelInfo {
   string frame_id = 5;
   repeated uint32 qubits = 6;
   double sample_rate_hz = 7;
+  // Local oscillator of the channel's port (0 for baseband): frequency = LO + the frame's NCO (IF).
+  double lo_frequency_hz = 8;
 }
 
 message DeviceDescription {

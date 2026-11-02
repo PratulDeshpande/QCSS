@@ -17,7 +17,11 @@ from qcss.config.profile import (
 
 
 def test_generator_cap(qblox_profile):
-    assert len(qblox_profile.generators) <= 6
+    """A Qblox module has 6 sequencers (a cluster has many modules)."""
+    per_module: dict[str, int] = {}
+    for g in qblox_profile.generators:
+        per_module[g.module_id] = per_module.get(g.module_id, 0) + 1
+    assert per_module and max(per_module.values()) <= 6
 
 
 def test_generator_cap_exceeded():

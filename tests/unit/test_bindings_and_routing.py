@@ -84,3 +84,50 @@ def test_qick_profile_clocks_are_commensurate():
     assert rates["gen0"] == 5          # 6881.28 Msps DAC
     assert tb.ticks_per("430.08e6") == 80   # tProc cycle
     assert any(g.is_readout for g in prof.generators)
+
+
+def test_leaky_pulses_route_to_pulse_level_physics():
+    """Gate tiers keep only the qubit subspace, so a pulse that leaks (a CZ chevron point) needs T2."""
+    from qcss.physics.router import route
+    assert route("AUTO", [], 2, needs_leakage=True).tier == "T2"
+    refused = route("T1B", [], 2, needs_leakage=True)
+    assert refused.tier is None and "leak" in refused.reason
+    assert route("AUTO", [], 2).tier == "T1B"
+
+
+def test_a_raw_trace_acquisition_routes_auto_to_the_physical_readout():
+    """Raw traces exist only in T2's physical readout: AUTO picks it, a gate tier asked for is refused."""
+    from qcss.physics.router import T2_MAX_QUTRITS, route
+    assert route("AUTO", [], 2, needs_raw_trace=True).tier == "T2"
+    refused = route("T1B", [], 2, needs_raw_trace=True)
+    assert refused.tier is None and "raw_trace" in refused.reason
+    assert route("AUTO", [], T2_MAX_QUTRITS + 1, needs_raw_trace=True).tier is None
+
+
+def test_auto_prefers_exact_physics_and_twirls_only_for_scale():
+    """A lab never Pauli-twirls its gates: AUTO takes the exact gate tier while it fits, T1A only beyond it."""
+    from qcss.physics.router import T1B_MAX_QUBITS, route
+    assert route("AUTO", [], 5).tier == "T1B"
+    assert route("AUTO", [], T1B_MAX_QUBITS + 1).tier == "T1A"
+    assert route("T1A", [], 5).tier == "T1A"               # still available when asked for explicitly
+
+
+def test_a_qblox_cluster_gives_every_qubit_its_own_sequencers(qblox_profile):
+    """As wired in a lab (and assumed by Qibolab's Qblox platforms): simultaneous gates and multiplexed readout."""
+    dev = load_device("src/qcss/config/devices/transmon_5q.yaml")
+    b = build_bindings(qblox_profile, dev)
+    for role in ("xy", "ro", "flux"):
+        gens = [b[f"{role}_q{q}"].generator_id for q in range(5)]
+        assert len(set(gens)) == 5, f"{role} channels share sequencers: {gens}"
+    assert len({b[f"ro_q{q}"].port_id for q in range(5)}) == 1        # one feedline, frequency-multiplexed
+    assert len({b[f"xy_q{q}"].port_id for q in range(5)}) == 5        # one drive line per qubit
+
+
+def test_a_qick_board_gives_every_qubit_its_own_dacs():
+    """ZCU216 wired as Qibosoq labs wire it: drive and flux DAC per qubit, one multiplexed readout DAC."""
+    prof = load_profile("src/qcss/config/profiles/qick_zcu216_5q.yaml")
+    b = build_bindings(prof, load_device("src/qcss/config/devices/transmon_5q.yaml"))
+    for role in ("xy", "flux", "ro"):
+        assert len({b[f"{role}_q{q}"].generator_id for q in range(5)}) == 5, role
+    assert {b[f"flux_q{q}"].port_id for q in range(5)} == {f"dac{5 + q}" for q in range(5)}
+    assert {b[f"ro_q{q}"].port_id for q in range(5)} == {"dac10"}

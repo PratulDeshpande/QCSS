@@ -10,6 +10,7 @@ from typing import Any, NoReturn, Protocol
 import grpc
 
 from qcss.adapters.errors import failed_precondition_status, invalid_argument_status
+from qcss.adapters.instrument_faults import InstrumentFaultInterceptor, InstrumentFaults
 from qcss.core.errors import HardwareValidationError, TierRoutingError
 from qcss.core.net import is_local_address
 from qcss.runtime.calibration_store import CalibrationEpochError, CalibrationStore
@@ -48,6 +49,9 @@ class ControlService(pbg.ControlServiceServicer):
             await context.abort_with_status(failed_precondition_status("CALIBRATION_EPOCH", "job.expected_calibration_epoch",
                                                                        str(err)))
         except TierRoutingError as err:
+            if not self.jobs.expose_diagnostics:            # a lab chassis: the instrument's words, not the engine's
+                await context.abort_with_status(failed_precondition_status(
+                    "INSTRUMENT_RESOURCES", "job", "the sequence exceeds the instrument's resources"))
             await context.abort_with_status(failed_precondition_status("FIDELITY_TIER", "job.requested_tier", str(err)))
 
     async def GetJobStatus(self, request: pb.GetJobStatusRequest, context: ServicerContext) -> pb.GetJobStatusResponse:
@@ -91,7 +95,7 @@ class ControlService(pbg.ControlServiceServicer):
     async def GetDeviceProperties(self, request: pb.GetDevicePropertiesRequest,
                                   context: ServicerContext) -> pb.GetDevicePropertiesResponse:
         if self.properties is None:
-            await context.abort(grpc.StatusCode.UNIMPLEMENTED, "this server has no device model")
+            await context.abort(grpc.StatusCode.UNIMPLEMENTED, "Method not implemented!")
         return pb.GetDevicePropertiesResponse(properties=self.properties())
 
 
@@ -106,7 +110,8 @@ def describe_device(profile, bindings) -> pb.DescribeDeviceResponse:
     for b in bindings.values():
         desc.channels.add(channel_id=b.channel_id, kind=kinds[str(b.kind)], generator_id=b.generator_id,
                           port_id=b.port_id, frame_id=b.frame_id, qubits=list(b.qubits),
-                          sample_rate_hz=float(gens[b.generator_id].sample_rate_hz))
+                          sample_rate_hz=float(gens[b.generator_id].sample_rate_hz),
+                          lo_frequency_hz=profile.port(b.port_id).lo_frequency_hz or 0.0)
     return pb.DescribeDeviceResponse(device=desc)
 
 
@@ -178,14 +183,18 @@ async def serve(
     calibration: CalibrationStore | None = None, *,
     tls: tuple[bytes, bytes] | None = None, token: str | None = None,
     properties: Callable[[], device_pb2.DeviceProperties] | None = None,
+    reflection: bool = False,
+    faults: InstrumentFaults | None = None,
 ) -> grpc.aio.Server:
     """address: 'unix:C:/.../qcss.sock' (Windows 10+) or '127.0.0.1:50051'.
     tls: PEM (certificate chain, private key); token: required as `authorization: Bearer <token>`.
     Never bind 0.0.0.0 without TLS (see check_bind_is_safe).
+    reflection: advertise the services (debugging only; an instrument does not describe its own API).
+    faults: instrument faults injected through the admin channel, applied to every call but health checks.
     """
     device_desc = device if device is not None else pb.DescribeDeviceResponse()
     server = grpc.aio.server(
-        interceptors=[BearerTokenInterceptor(token)],
+        interceptors=[BearerTokenInterceptor(token)] + ([InstrumentFaultInterceptor(faults)] if faults else []),
         options=[
             ("grpc.max_send_message_length", 16 << 20),
             ("grpc.max_receive_message_length", 16 << 20),
@@ -212,13 +221,13 @@ async def serve(
     except ImportError:
         health_name = None
 
-    # Server reflection (grpcio-reflection)
-    try:
-        from grpc_reflection.v1alpha import reflection
-        names = [service_name, reflection.SERVICE_NAME] + ([health_name] if health_name else [])
-        reflection.enable_server_reflection(names, server)
-    except ImportError:
-        pass
+    if reflection:
+        try:
+            from grpc_reflection.v1alpha import reflection as grpc_reflection
+            names = [service_name, grpc_reflection.SERVICE_NAME] + ([health_name] if health_name else [])
+            grpc_reflection.enable_server_reflection(names, server)
+        except ImportError:
+            pass
 
     if tls is not None:
         port = server.add_secure_port(address, grpc.ssl_server_credentials([(tls[1], tls[0])]))

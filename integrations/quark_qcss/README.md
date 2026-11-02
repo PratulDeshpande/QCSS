@@ -1,4 +1,9 @@
-# quark-qcss
+# quark-qcss (deprecated)
+
+> **Deprecated.** Quark reaches QCSS the way it reaches a lab: through its Qibolab adapter, with
+> QCSS presenting a Qibolab platform (`platforms/qcss_qblox_5q`, `integrations/qcss_qibolab`) or a
+> Qibosoq board (`platforms/qcss_rfsoc_5q`). This gRPC driver talks to an interface no lab has, and it
+> will be removed in the next release. Its conformance checks live on in `tests/virtual_lab/`.
 
 Reference Layer-7 driver for Quark-QOS (HLD §5.7): a `DeviceProvider`
 (HAL) and an `ExecutionDriver` that talk to any server implementing `qcss.v1.ControlService`, which is

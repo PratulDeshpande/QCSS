@@ -1,0 +1,94 @@
+profile_name: qick_zcu216_5q
+vendor: qick
+# A ZCU216 board wired to a 5-qubit chip the way Qibosoq labs wire it: one DAC per drive line
+# (dac0-4) and per flux line (dac5-9, baseband), one frequency-multiplexed readout DAC (dac10)
+# with one tone generator per qubit, read back on ADCs 0-4. Timing rules are those of the
+# qick_zcu216_4q example build and stay unverified until checked against the bitstream in use.
+clock:
+  tick_hz: "34406.4e6"                 # 80 ticks per tProc cycle, 5 per DAC sample, 112 per decimated ADC sample
+  provenance: {source_url: "https://docs.qick.dev/latest/topics/timing.html", verified: false,
+               note: "derived from the notes' example build; firmware-specific"}
+ports:
+  - &drive_dac
+    port_id: dac0
+    kind: rf_direct
+    max_generators: 1
+    full_scale_per_path: 1.0
+    saturation_policy: clip
+    lo_frequency_hz: null
+    provenance: {verified: false}
+  - {<<: *drive_dac, port_id: dac1}
+  - {<<: *drive_dac, port_id: dac2}
+  - {<<: *drive_dac, port_id: dac3}
+  - {<<: *drive_dac, port_id: dac4}
+  - &flux_dac
+    port_id: dac5
+    kind: baseband
+    max_generators: 1
+    full_scale_per_path: 1.0
+    saturation_policy: clip
+    provenance: {verified: false}
+  - {<<: *flux_dac, port_id: dac6}
+  - {<<: *flux_dac, port_id: dac7}
+  - {<<: *flux_dac, port_id: dac8}
+  - {<<: *flux_dac, port_id: dac9}
+  - {<<: *drive_dac, port_id: dac10, max_generators: 5}
+generators:
+  - &gen
+    generator_id: gen0
+    port_id: dac0
+    module_id: rfsoc0
+    sample_rate_hz: "6881.28e6"
+    rt_granularity_ticks: 80          # one tProc cycle (2.325 ns)
+    rt_min_duration_ticks: 80
+    wave_granularity_samples: 16      # one fabric cycle = 16 DAC samples
+    wave_min_samples: 16
+    wave_mem_samples: 65536
+    max_waveforms: 1024
+    instr_mem: 4096                   # program memory, words
+    max_wait_ticks_per_instr: 171798691840   # signed 32-bit tProc cycles x 80
+    nco_grid_ticks: 80
+    nco_min_spacing_ticks: 0
+    nco_phase_steps: 4294967296       # 32-bit phase
+    nco_freq_resolution_hz: 1.6       # 6881.28 MHz / 2^32
+    nco_freq_range_hz: [0.0, 6881.28e6]    # Nyquist zones 1 and 2: qibosoq picks nqz=2 above fs/2
+    overlap_policy: reject
+    provenance: {verified: false, note: "full-speed generator of the notes' example build"}
+  - {<<: *gen, generator_id: gen1, port_id: dac1}
+  - {<<: *gen, generator_id: gen2, port_id: dac2}
+  - {<<: *gen, generator_id: gen3, port_id: dac3}
+  - {<<: *gen, generator_id: gen4, port_id: dac4}
+  - {<<: *gen, generator_id: gen5, port_id: dac5}
+  - {<<: *gen, generator_id: gen6, port_id: dac6}
+  - {<<: *gen, generator_id: gen7, port_id: dac7}
+  - {<<: *gen, generator_id: gen8, port_id: dac8}
+  - {<<: *gen, generator_id: gen9, port_id: dac9}
+  - &ro_gen
+    <<: *gen
+    generator_id: ro_gen0
+    port_id: dac10
+    is_readout: true
+    provenance: {verified: false, note: "multiplexed readout tone generator; ADC side at 2457.6 Msps"}
+  - {<<: *ro_gen, generator_id: ro_gen1}
+  - {<<: *ro_gen, generator_id: ro_gen2}
+  - {<<: *ro_gen, generator_id: ro_gen3}
+  - {<<: *ro_gen, generator_id: ro_gen4}
+acquisition:
+  modes: [raw_trace, integrated, discriminated]
+  max_discriminated_states: 2
+  integration_granularity_ticks: 112  # one decimated ADC sample at 307.2 MHz
+  max_square_integration_ticks: 114688000
+  max_weighted_integration_ticks: 1835008   # 16384 decimated samples
+  max_weight_sets: 8
+  min_acq_spacing_ticks: 80
+  internal_tof_ticks: 3472            # ~101 ns DAC+ADC path (notes: 90-117 ns)
+  integration_convention: sum
+  provenance: {verified: false}
+feedback:
+  branch_equal_duration_required: false
+  trigger_grid_ticks: 80
+  trigger_min_period_ticks: 80
+  max_condition_addresses: 8
+  latencies:
+    - {src: "*", dst: "*", payload: bit, routing: self,  latency_ticks: 6400, provenance: {note: "~186 ns (notes: 184-211 ns)", verified: false}}
+    - {src: "*", dst: "*", payload: bit, routing: intra, latency_ticks: 6400, provenance: {note: "~186 ns (notes: 184-211 ns)", verified: false}}

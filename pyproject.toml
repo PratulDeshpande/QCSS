@@ -40,15 +40,22 @@ dependencies = [
 
 [project.optional-dependencies]
 adapters = ["qcodes>=0.61", "pyvisa>=1.16", "pyvisa-sim>=0.7"]
-qibolab  = ["qibolab>=0.2.17,<0.3"]
+# The virtual lab: QCSS platforms load through Qibolab and are calibrated by Qibocal. Qibolab is pinned
+# exactly because its Controller base class lives in the private qibolab._core package.
+qibolab  = ["qibolab==0.2.17", "qibo>=0.3,<0.4"]
+qibocal  = ["qibocal==0.2.6", "qibolab==0.2.17", "qibo>=0.3,<0.4"]
+
 
 [dependency-groups]
+# The virtual lab's environment: what a lab server has installed so Qibolab and Qibocal can load QCSS platforms.
+lab = ["qcss-qibolab"]
 dev = [
   "grpcio-tools>=1.71.2,<1.72",     # keep in step with the protobuf runtime pin; regenerate with scripts/gen_proto.py
   "pytest>=8",
   "anyio>=4",
   "hypothesis>=6",
   "pytest-xdist>=3",
+  "cryptography>=42",               # TLS tests and scripts/make_dev_cert.py; without it pyright fails and TLS tests skip
   "ruff>=0.6",
   "pyright==1.1.414",               # pinned: CI type-checks with zero errors; bump deliberately
 ]
@@ -62,6 +69,9 @@ Changelog = "https://github.com/PratulDeshpande/qcss/blob/main/CHANGELOG.md"
 [project.scripts]
 qcss = "qcss.cli:app"
 
+[tool.uv.sources]
+qcss-qibolab = { path = "integrations/qcss_qibolab", editable = true }
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/qcss"]
 
@@ -69,25 +79,26 @@ packages = ["src/qcss"]
 include = ["/src", "/tests", "/proto", "/scripts", "/buf.yaml", "/README.md", "/LICENSE", "/NOTICE", "/CHANGELOG.md"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "integrations/quark_qcss/tests"]
+testpaths = ["tests", "integrations/quark_qcss/tests", "integrations/qcss_qibolab/tests"]
 addopts = "-ra -q --strict-markers"
-pythonpath = ["src", ".", "integrations/quark_qcss/src"]
+pythonpath = ["src", ".", "integrations/quark_qcss/src", "integrations/qcss_qibolab/src"]
 markers = [
   "slow: long-running physics oracles (nightly)",
   "stochastic: statistical assertions; run with many seeds nightly",
   "linux_only: requires Linux (JAX, PREEMPT_RT)",
+  "virtual_lab: end to end through Qibolab against a chassis (the path Quark takes)",
 ]
 
 [tool.ruff]
 target-version = "py312"
 line-length = 120
-extend-exclude = ["src/qcss/v1/*_pb2*.py", "src/qcss/v1/*_pb2*.pyi"]
+extend-exclude = ["src/qcss/**/*_pb2*.py", "src/qcss/**/*_pb2*.pyi"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["qcss", "quark_qcss", "tests"]
+known-first-party = ["qcss", "quark_qcss", "qcss_qibolab", "tests"]
 
 [tool.pyright]
-include = ["src", "tests", "scripts", "integrations/quark_qcss"]
-extraPaths = ["src", ".", "integrations/quark_qcss/src"]
-exclude = ["src/qcss/v1/*_pb2*.py"]
+include = ["src", "tests", "scripts", "integrations/quark_qcss", "integrations/qcss_qibolab", "platforms"]
+extraPaths = ["src", ".", "integrations/quark_qcss/src", "integrations/qcss_qibolab/src"]
+exclude = ["src/qcss/**/*_pb2*.py"]
 pythonVersion = "3.12"

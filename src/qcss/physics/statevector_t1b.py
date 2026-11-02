@@ -11,6 +11,8 @@ import numpy as np
 
 from qcss.physics.lifter import GateEvent, nearest_unitary
 
+THERMALISED_AFTER_T1 = 20.0      # idle longer than this many T1 and a warm qubit has forgotten its state (e^-20)
+
 
 class StatevectorT1b:
     tier = "T1B"
@@ -22,12 +24,13 @@ class StatevectorT1b:
         self.n = n
         self.dtype = dtype
         self.nbar = np.zeros(n) if nbar is None else np.asarray(nbar, dtype=float)
+        self.p_eq = self.nbar / (1 + 2 * self.nbar)   # thermal excited population the qubits relax to
         self._t2_spec = np.asarray(t2_ns, dtype=float)
         self.set_parameters(t1_ns=t1_ns)
         self.psi = np.zeros(1 << n, dtype=dtype)
-        self.psi[0] = 1.0
         self.clock = np.zeros(n)                      # last update time per qubit (ns)
         self._rng = np.random.default_rng(seed)
+        self.reset_state()
 
     def set_parameters(self, f01_ghz: list[float] | None = None, t1_ns: list[float] | None = None) -> None:
         if t1_ns is not None:
@@ -46,13 +49,49 @@ class StatevectorT1b:
         return tuple(s)
 
     def reset_state(self) -> None:
+        """A thermal start: each qubit excited with its equilibrium probability (|0...0> when cold)."""
         self.psi[:] = 0.0
-        self.psi[0] = 1.0
+        hot = self._rng.random(self.n) < self.p_eq if self.p_eq.any() else np.zeros(self.n, dtype=bool)
+        self.psi[int("".join("1" if b else "0" for b in hot), 2) if self.n else 0] = 1.0
         self.clock[:] = 0.0
 
     # -- noise ------------------------------------------------------------------------
     def _amp_damp(self, q: int, dt: float, rng: np.random.Generator) -> None:
-        g = -np.expm1(-dt / self.t1[q])
+        """Generalized amplitude damping as quantum jumps: down at (1 - p_eq) / T1, up at p_eq / T1.
+        A warm qubit's interval is split into steps of at most T1 / 10 so both channels stay accurate."""
+        p_eq = self.p_eq[q]
+        if p_eq <= 0.0:
+            self._jump_down(q, -np.expm1(-dt / self.t1[q]), rng)
+            return
+        if dt >= THERMALISED_AFTER_T1 * self.t1[q]:
+            # Fully relaxed (memory left: e^-20): the exact limit of the channel is a fresh thermal qubit.
+            # Without this a very short T1 (a killed qubit) makes the step count grow as dt / T1.
+            self._jump_down(q, 1.0, rng)
+            self._jump_up(q, p_eq, rng)
+            return
+        steps = max(1, int(np.ceil(10 * dt / self.t1[q])))          # at most 10 x THERMALISED_AFTER_T1
+        h = dt / steps
+        g_down, g_up = -np.expm1(-h * (1 - p_eq) / self.t1[q]), -np.expm1(-h * p_eq / self.t1[q])
+        for _ in range(steps):
+            self._jump_down(q, g_down, rng)
+            self._jump_up(q, g_up, rng)
+
+    def _jump_up(self, q: int, g: float, rng: np.random.Generator) -> None:
+        t = self._t()
+        i0, i1 = self._sl(q, 0), self._sl(q, 1)
+        p0 = float(np.vdot(t[i0], t[i0]).real)
+        if p0 <= 1e-15:
+            return
+        if rng.random() < g * p0:                     # thermal excitation |0> -> |1>
+            t[i1] = t[i0] / np.sqrt(p0)
+            t[i0] = 0.0
+        else:
+            t[i0] *= np.sqrt(max(0.0, 1.0 - g))
+            norm = float(np.vdot(self.psi, self.psi).real)
+            if norm > 0:
+                self.psi /= np.sqrt(norm)
+
+    def _jump_down(self, q: int, g: float, rng: np.random.Generator) -> None:
         t = self._t()
         i0, i1 = self._sl(q, 0), self._sl(q, 1)
         p1 = float(np.vdot(t[i1], t[i1]).real)

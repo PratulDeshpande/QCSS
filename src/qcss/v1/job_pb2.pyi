@@ -239,8 +239,16 @@ class IntegrationWeights(_message.Message):
     weights: _common_pb2.NdArray
     def __init__(self, weights: _Optional[_Union[_common_pb2.NdArray, _Mapping]] = ...) -> None: ...
 
+class ProgramPoint(_message.Message):
+    __slots__ = ("indices", "main")
+    INDICES_FIELD_NUMBER: _ClassVar[int]
+    MAIN_FIELD_NUMBER: _ClassVar[int]
+    indices: _containers.RepeatedScalarFieldContainer[int]
+    main: Block
+    def __init__(self, indices: _Optional[_Iterable[int]] = ..., main: _Optional[_Union[Block, _Mapping]] = ...) -> None: ...
+
 class Job(_message.Message):
-    __slots__ = ("job_key", "waveform_library", "weight_library", "main", "sweeps", "num_shots", "repetition_delay_ticks", "priority", "requested_tier", "random_seed", "expected_calibration_epoch")
+    __slots__ = ("job_key", "waveform_library", "weight_library", "main", "sweeps", "num_shots", "repetition_delay_ticks", "priority", "requested_tier", "random_seed", "expected_calibration_epoch", "program_points")
     class WaveformLibraryEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -266,6 +274,7 @@ class Job(_message.Message):
     REQUESTED_TIER_FIELD_NUMBER: _ClassVar[int]
     RANDOM_SEED_FIELD_NUMBER: _ClassVar[int]
     EXPECTED_CALIBRATION_EPOCH_FIELD_NUMBER: _ClassVar[int]
+    PROGRAM_POINTS_FIELD_NUMBER: _ClassVar[int]
     job_key: str
     waveform_library: _containers.MessageMap[str, Waveform]
     weight_library: _containers.MessageMap[str, IntegrationWeights]
@@ -277,4 +286,5 @@ class Job(_message.Message):
     requested_tier: FidelityTier
     random_seed: int
     expected_calibration_epoch: int
-    def __init__(self, job_key: _Optional[str] = ..., waveform_library: _Optional[_Mapping[str, Waveform]] = ..., weight_library: _Optional[_Mapping[str, IntegrationWeights]] = ..., main: _Optional[_Union[Block, _Mapping]] = ..., sweeps: _Optional[_Iterable[_Union[Sweep, _Mapping]]] = ..., num_shots: _Optional[int] = ..., repetition_delay_ticks: _Optional[int] = ..., priority: _Optional[int] = ..., requested_tier: _Optional[_Union[FidelityTier, str]] = ..., random_seed: _Optional[int] = ..., expected_calibration_epoch: _Optional[int] = ...) -> None: ...
+    program_points: _containers.RepeatedCompositeFieldContainer[ProgramPoint]
+    def __init__(self, job_key: _Optional[str] = ..., waveform_library: _Optional[_Mapping[str, Waveform]] = ..., weight_library: _Optional[_Mapping[str, IntegrationWeights]] = ..., main: _Optional[_Union[Block, _Mapping]] = ..., sweeps: _Optional[_Iterable[_Union[Sweep, _Mapping]]] = ..., num_shots: _Optional[int] = ..., repetition_delay_ticks: _Optional[int] = ..., priority: _Optional[int] = ..., requested_tier: _Optional[_Union[FidelityTier, str]] = ..., random_seed: _Optional[int] = ..., expected_calibration_epoch: _Optional[int] = ..., program_points: _Optional[_Iterable[_Union[ProgramPoint, _Mapping]]] = ...) -> None: ...

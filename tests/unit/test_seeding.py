@@ -40,3 +40,10 @@ def test_stim_seed_deterministic():
     s2 = stim_seed(100, 200, 0, 1)
     assert s1 == s2
     assert s1 >= 0
+
+
+def test_a_chassis_without_a_seed_draws_one_from_entropy():
+    from qcss.core.seeding import chassis_seed
+    assert chassis_seed(7) == 7
+    drawn = {chassis_seed(None) for _ in range(4)}
+    assert len(drawn) == 4 and all(s >= 0 for s in drawn)

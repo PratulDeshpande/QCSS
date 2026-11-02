@@ -95,3 +95,20 @@ def test_smoke_script_passes_every_step(server, tmp_path):
     steps = json.loads(report.read_text())["steps"]
     assert len(steps) == 10
     assert all(s["status"] == "PASS" for s in steps), steps
+
+
+def test_smoke_script_passes_against_a_lab_chassis(tmp_path):
+    """`qcss serve` is a lab chassis: it does not hand out the chip's properties, and the smoke test
+    (the chassis-link check) must still pass every step against it."""
+    if not _can_connect_loopback():
+        pytest.skip("Loopback socket connection not permitted in current sandbox environment")
+    from tests.integration.test_admin_cli import _ChassisThread
+    report = tmp_path / "smoke.json"
+    with _ChassisThread(str(tmp_path)) as chassis:
+        proc = subprocess.run([sys.executable, str(REPO_ROOT / "scripts" / "remote_smoke.py"), "--target",
+                               str(chassis.chassis.config.lab_address), "--report", str(report)],
+                              capture_output=True, text=True, timeout=600, check=False, cwd=REPO_ROOT,
+                              env={**os.environ, "PYTHONPATH": str(REPO_ROOT / "src")})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    steps = json.loads(report.read_text())["steps"]
+    assert all(s["status"] == "PASS" for s in steps), steps

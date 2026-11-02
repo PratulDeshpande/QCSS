@@ -61,3 +61,6 @@ desktop.ini
 /results*.json
 /job*.json
 *.sock
+
+# Local TLS material (private keys must never be committed)
+/certs/

@@ -17,7 +17,9 @@ import multiprocessing
 import os
 import pickle
 import tempfile
-from collections.abc import AsyncIterator
+import threading
+import time
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -35,7 +37,7 @@ from qcss.device.state import DeviceState
 from qcss.feedback.executor import ExecContext, QubitModel, ShotExecutor, UnliftableError, shot_duration
 from qcss.feedback.latency import FeedbackLatencyResolver, readout_tof_ticks
 from qcss.ir.compiler import build_bindings, compile_job, expand_sweeps
-from qcss.ir.program import Acquire, Branch, ChannelKind, Program
+from qcss.ir.program import Acquire, Branch, ChannelKind, FrameOp, Program
 from qcss.ir.validator import Validator, frame_if_from_bindings
 from qcss.ir.waveforms import WaveformLibrary
 from qcss.physics.lindblad_t2 import LindbladT2, QutritParams
@@ -53,6 +55,7 @@ from qcss.signal.filters import FluxLineModel
 from qcss.signal.mixer import IQCorrection, IQImpairment
 from qcss.signal.port_renderer import DriveChain, FluxChain
 from qcss.signal.predistortion import QbloxRTP
+from qcss.timing.instrument_time import InstrumentPacer
 from qcss.v1 import calibration_pb2, device_pb2, job_pb2, result_pb2
 
 REQUESTED = {
@@ -69,6 +72,11 @@ TIER_ENUM = {"T0": job_pb2.FIDELITY_TIER_T0_SURROGATE, "T1A": job_pb2.FIDELITY_T
 TIER_FIDELITY = {"T0": result_pb2.NOISE_FIDELITY_SURROGATE, "T1A": result_pb2.NOISE_FIDELITY_TWIRLED,
                  "T1B": result_pb2.NOISE_FIDELITY_PHYSICAL, "T2": result_pb2.NOISE_FIDELITY_PHYSICAL}
 DEFAULT_FLUX_PHI0_PER_FS = 0.5          # full-scale flux amplitude -> 0.5 Phi0 when the device gives no M_fast
+# Gate tiers keep only the qubit subspace, dropping what a pulse leaks. Up to this much per pulse is
+# accepted as the gate tiers' approximation (a 20 ns square 2 pi pulse leaks ~2 %, a DRAG gate ~1e-4);
+# beyond it the job runs at pulse level (T2): a CZ chevron point 20 MHz from the 11-20 resonance leaks
+# ~4 %, at resonance ~25 %.
+GATE_TIER_MAX_LEAKAGE = 0.03
 NOMINAL_PI_SAMPLES = 20                 # single-qubit gate length when the calibration does not set one
 NOMINAL_READOUT_S = 1e-6                # integration window behind the reported readout errors
 
@@ -103,6 +111,24 @@ class PlannedPoint:
     job: job_pb2.Job
     prog: Program
     wf_lib: WaveformLibrary
+    probe_hz: dict[int, float] = field(default_factory=dict)    # qubit -> probe frequency set by the program
+
+
+def _split_probe_frequencies(prog: Program, profile: HardwareProfile) -> tuple[Program, dict[int, float]]:
+    """Readout-frame SetFrequency ops set the probe NCO of that point's readout (resonator spectroscopy):
+    they leave the program and become a probe frequency, LO + IF, for the readout model."""
+    probe: dict[int, float] = {}
+    ops = []
+    for op in prog.ops:
+        b = next((b for b in prog.bindings.values() if b.kind is ChannelKind.READOUT and b.frame_id ==
+                  getattr(op, "frame_id", None)), None)
+        if isinstance(op, FrameOp) and op.kind == "freq" and b is not None:
+            probe[b.qubits[0]] = (profile.port(b.port_id).lo_frequency_hz or 0.0) + op.value
+        else:
+            ops.append(op)
+    if not probe:
+        return prog, probe
+    return Program(prog.bindings, ops, prog.waveforms, prog.weights, prog.duration, prog.repetition_delay), probe
 
 
 @dataclass
@@ -113,6 +139,9 @@ class JobPlan:
     qubits: list[int]                      # device qubits simulated, engine order
     epoch: int
     warnings: list[str] = field(default_factory=list)
+    # Calibration pinned at planning: every chunk runs with it, as an instrument keeps what was uploaded.
+    snapshot: calibration_pb2.CalibrationSnapshot = field(default_factory=calibration_pb2.CalibrationSnapshot)
+    os_set: frozenset[int] = frozenset()
 
     @property
     def tier_enum(self) -> int:
@@ -144,11 +173,19 @@ class _NullEngine:
 
 class SimulationContext:
     def __init__(self, profile: HardwareProfile, device: DeviceSpec | None = None, timebase: TimeBase | None = None,
-                 calibration: CalibrationStore | None = None, global_seed: int = 0) -> None:
+                 calibration: CalibrationStore | None = None, global_seed: int = 0, *,
+                 time_scale: float = 0.0, wall_clock: Callable[[], float] = time.monotonic,
+                 honour_job_seed: bool = True, tier_policy: str | None = None) -> None:
+        """time_scale: lab seconds per wall second while no job runs (0 freezes the chip between jobs).
+        honour_job_seed: replay shots from Job.random_seed; a realistic chassis turns it off (hardware can't).
+        tier_policy: None honours Job.requested_tier; a tier name ("AUTO", "T2", ...) overrides it, as on a
+        lab chassis where the operator, not the client, decides how the physics is computed."""
         self.profile = profile
         self.device = device
         self.tb = timebase if timebase is not None else TimeBase.from_clocks(profile.clock.tick_hz)
         self.global_seed = global_seed
+        self.honour_job_seed = honour_job_seed
+        self.tier_policy = tier_policy
         self.bindings = build_bindings(profile, device)
         self.gens = {g.generator_id: g for g in profile.generators}
         self.ticks_per_sample = {gid: self.tb.ticks_per(g.sample_rate_hz) for gid, g in self.gens.items()}
@@ -157,7 +194,40 @@ class SimulationContext:
         self.qdef = self._qubit_defaults()
         self.calibration = calibration if calibration is not None else CalibrationStore(self.default_calibration())
         self._device_state = (DeviceState(device, stream(global_seed, 0, Domain.DRIFT)) if device is not None else None)
-        self.lab_time_s = 0.0
+        if time_scale < 0:
+            raise ValueError("time_scale must be >= 0")
+        self.time_scale = time_scale
+        self._wall_clock = wall_clock
+        self._lab_anchor_s = 0.0
+        self._wall_anchor_s = wall_clock()
+        self.device_lock = threading.RLock()          # the chip is read and changed from several threads
+
+    def set_time_scale(self, time_scale: float) -> None:
+        """Change the pace of lab time from now on (lab time so far is kept)."""
+        if time_scale < 0:
+            raise ValueError("time_scale must be >= 0")
+        now = self.lab_time_s
+        self.time_scale = time_scale
+        self.lab_time_s = now
+
+    @property
+    def device_state(self) -> DeviceState | None:
+        """The hidden chip state (drift, defects, scenarios); None without a device file."""
+        return self._device_state
+
+    @device_state.setter
+    def device_state(self, value: DeviceState | None) -> None:
+        self._device_state = value
+
+    @property
+    def lab_time_s(self) -> float:
+        """Lab time now: the last anchored value plus the scaled wall time spent idle since then."""
+        return self._lab_anchor_s + (self._wall_clock() - self._wall_anchor_s) * self.time_scale
+
+    @lab_time_s.setter
+    def lab_time_s(self, value: float) -> None:
+        self._lab_anchor_s = value
+        self._wall_anchor_s = self._wall_clock()
 
     # ------------------------------------------------------------------ device and calibration
     def _qubit_defaults(self) -> dict[int, QubitDefaults]:
@@ -197,6 +267,10 @@ class SimulationContext:
 
     def device_parameters(self, lab_time_s: float) -> tuple[list[float], list[float]]:
         """(f01 GHz, T1 ns) per device qubit in self.qdef order, at the given lab time."""
+        with self.device_lock:
+            return self._device_parameters(lab_time_s)
+
+    def _device_parameters(self, lab_time_s: float) -> tuple[list[float], list[float]]:
         qs = list(self.qdef)
         if self._device_state is None:
             return [self.qdef[q].f01_ghz for q in qs], [self.qdef[q].t1_ns for q in qs]
@@ -293,8 +367,10 @@ class SimulationContext:
 
     # ------------------------------------------------------------------ planning
     def plan(self, job: job_pb2.Job) -> JobPlan:
-        snap = self.calibration.snapshot()
-        self.calibration.check_epoch(job.expected_calibration_epoch if job.HasField("expected_calibration_epoch") else None)
+        snap, os_set = self.calibration.pin()
+        if job.HasField("expected_calibration_epoch") and job.expected_calibration_epoch != snap.calibration_epoch:
+            raise CalibrationEpochError(f"job expects calibration epoch {job.expected_calibration_epoch}, "
+                                        f"current is {snap.calibration_epoch}")
         if job.num_shots == 0:
             raise HardwareValidationError([("job.num_shots", "must be > 0")])
         points: list[PlannedPoint] = []
@@ -309,27 +385,27 @@ class SimulationContext:
             except HardwareValidationError as exc:
                 violations.extend((prefix + p, d) for p, d in exc.violations)
                 continue
+            prog, probe = _split_probe_frequencies(prog, self.profile)
             rep = validator.validate(prog, wf_lib)
             violations.extend((prefix + p, d) for p, d in rep.violations)
             warnings.extend(prefix + w for w in rep.warnings)
-            points.append(PlannedPoint(pt.indices, pt.job, prog, wf_lib))
+            points.append(PlannedPoint(pt.indices, pt.job, prog, wf_lib, probe))
         if violations:
             raise HardwareValidationError(violations)
 
         qubits = self._simulated_qubits(points)
-        requested = REQUESTED.get(job.requested_tier, "AUTO")
+        requested = self.tier_policy or REQUESTED.get(job.requested_tier, "AUTO")
         lifted: list | None = []
         for p in points:
             ev = self.dry_run_lift(p, qubits, snap)
             lifted = None if ev is None or lifted is None else lifted + ev
-        decision = route(requested, lifted, len(qubits))
+        leaky = lifted is not None and any(ev.leakage > GATE_TIER_MAX_LEAKAGE for ev in lifted)
+        raw_trace = any(isinstance(o, Acquire) and o.mode == "raw_trace" for p in points for o in _all_ops(p.prog.ops))
+        decision = route(requested, lifted, len(qubits), needs_leakage=leaky, needs_raw_trace=raw_trace)
         if decision.tier is None:
             raise TierRoutingError(f"Tier routing failed: {decision.reason}")
-        if decision.tier != "T2" and any(isinstance(o, Acquire) and o.mode == "raw_trace"
-                                         for p in points for o in _all_ops(p.prog.ops)):
-            raise TierRoutingError(f"Tier routing failed: raw_trace acquisition needs the physical readout of T2, "
-                                   f"not {decision.tier}")
-        return JobPlan(points, decision.tier, decision.reason, qubits, snap.calibration_epoch, warnings)
+        return JobPlan(points, decision.tier, decision.reason, qubits, snap.calibration_epoch, warnings,
+                       snap, os_set)
 
     def _simulated_qubits(self, points: list[PlannedPoint]) -> list[int]:
         used: set[int] = set()
@@ -360,7 +436,8 @@ class SimulationContext:
 
     # ------------------------------------------------------------------ execution context
     def exec_context(self, p: PlannedPoint, qubits: list[int], engine: Any, snap, f01_now: list[float],
-                     t1_now: list[float], tier: str = "T1B", clifford_required: bool = False) -> ExecContext:
+                     t1_now: list[float], tier: str = "T1B", clifford_required: bool = False,
+                     os_set: frozenset[int] | None = None) -> ExecContext:
         prof, dev = self.profile, self.device
         qmap = {q: i for i, q in enumerate(qubits)}
         f_now = dict(zip(self.qdef, f01_now, strict=True))
@@ -432,7 +509,8 @@ class SimulationContext:
                 flux_chains[b.port_id] = FluxChain(truth, pre)
 
         readout, adc = {}, {}
-        os_set = self.calibration.os_set()
+        if os_set is None:
+            os_set = self.calibration.os_set()
         acq = prof.acquisition
         for cid, b in self.bindings.items():
             if b.kind is not ChannelKind.READOUT:
@@ -465,7 +543,8 @@ class SimulationContext:
         if tier == "T1A":
             return StimT1a(n, [t1[q] for q in qubits], t2, seed=seed)
         if tier == "T1B":
-            return StatevectorT1b(n, [t1[q] for q in qubits], t2, seed=seed)
+            return StatevectorT1b(n, [t1[q] for q in qubits], t2, nbar=[self.qdef[q].nbar for q in qubits],
+                                  seed=seed)
         couplings = {}
         if self.device is not None:
             pos = {q: i for i, q in enumerate(qubits)}
@@ -495,9 +574,16 @@ class SimulationContext:
         ro_rng = stream(self.global_seed, key, Domain.READOUT, point, chunk_index)
         engine = self.make_engine(plan.tier, plan.qubits, f01_now, t1_now,
                                   seed=int(stream(self.global_seed, key, Domain.STIM, point, chunk_index).integers(2**31)))
-        snap = self.calibration.snapshot()
+        snap = plan.snapshot
+        if p.probe_hz:
+            snap = calibration_pb2.CalibrationSnapshot()
+            snap.CopyFrom(plan.snapshot)
+            for qc in snap.qubits:
+                if qc.qubit_index in p.probe_hz:
+                    qc.readout_frequency_hz = p.probe_hz[qc.qubit_index]
         ctx = self.exec_context(PlannedPoint(p.indices, p.job, prog, p.wf_lib), plan.qubits, engine, snap,
-                                f01_now, t1_now, tier=plan.tier, clifford_required=plan.tier == "T1A")
+                                f01_now, t1_now, tier=plan.tier, clifford_required=plan.tier == "T1A",
+                                os_set=plan.os_set)
         ctx.latency = FeedbackLatencyResolver(self.profile, stream(self.global_seed, key, Domain.JITTER, point,
                                                                     chunk_index)).latency_ticks
         ex = ShotExecutor(ctx)
@@ -624,9 +710,11 @@ def create_simulation_validator(profile: HardwareProfile, timebase: TimeBase, de
 
 def create_simulation_runner(profile: HardwareProfile, device: DeviceSpec | None = None,
                              timebase: TimeBase | None = None, chunk_size: int = CHUNK_SHOTS, *,
-                             context: SimulationContext | None = None, workers: int = 0, global_seed: int = 0):
+                             context: SimulationContext | None = None, workers: int = 0, global_seed: int = 0,
+                             pacer: InstrumentPacer | None = None):
     """workers = 0: compute in a thread (keeps the event loop responsive);
-    workers > 0: a persistent spawn process pool (Windows-safe, one BLAS thread per worker)."""
+    workers > 0: a persistent spawn process pool (Windows-safe, one BLAS thread per worker).
+    pacer: make each job take its upload latency plus its lab time in wall time, as on an instrument."""
     ctx = context if context is not None else SimulationContext(profile, device, timebase, global_seed=global_seed)
     pool: concurrent.futures.ProcessPoolExecutor | None = None
     if workers > 0:
@@ -645,9 +733,10 @@ def create_simulation_runner(profile: HardwareProfile, device: DeviceSpec | None
 
     async def runner(job_id: str, job: job_pb2.Job, cancel: asyncio.Event) -> AsyncIterator[result_pb2.ResultChunk]:
         plan = await asyncio.to_thread(ctx.plan, job)
-        key = job_key(job.random_seed if job.HasField("random_seed") else None, job_id)
+        key = job_key(job.random_seed if ctx.honour_job_seed and job.HasField("random_seed") else None, job_id)
         num_shots = int(job.num_shots)
         work = [(pi, ci, n) for pi in range(len(plan.points)) for ci, n in chunks(num_shots, chunk_size)]
+        paced = await pacer.begin(cancel) if pacer is not None else None
         seq, tick = 1, 0
         lab0 = ctx.lab_time_s
         tick_s = 1.0 / float(ctx.tb.tick_hz)
@@ -657,10 +746,14 @@ def create_simulation_runner(profile: HardwareProfile, device: DeviceSpec | None
             f01, t1 = ctx.device_parameters(lab0 + tick * tick_s)
             result = await run_chunk(plan, (pi, ci, n, key, f01, t1, tick))
             tick = result["end_tick"]
+            if paced is not None:
+                await paced.pace(tick * tick_s, cancel)
             yield _chunk_proto(job_id, seq, ci * chunk_size, plan.points[pi], result, plan.epoch,
                                i == len(work) - 1, plan.warnings if i == 0 else [])
             seq += 1
-        ctx.lab_time_s = lab0 + tick * tick_s
+        # The chip is at least as old as the job's shots made it, and never younger than the scaled wall clock:
+        # a simulation slower than real time does not hand that overrun back (time on an instrument only runs on).
+        ctx.lab_time_s = max(lab0 + tick * tick_s, ctx.lab_time_s)
 
     runner.context = ctx                  # type: ignore[attr-defined]
     runner.pool = pool                    # type: ignore[attr-defined]

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 import qutip as qt
 
 from qcss.physics.lindblad_t2 import DIM, LindbladT2, QutritParams
@@ -92,3 +93,40 @@ def test_two_qutrit_relaxation():
 
     assert np.isclose(p0[1], np.exp(-0.5), atol=0.01)
     assert np.isclose(p1[1], np.exp(-1.0 / 3.0), atol=0.01)
+
+
+@pytest.mark.slow
+def test_a_flux_pulse_through_the_11_20_resonance_swaps_population():
+    """CZ chevron on the Qblox cluster: flux on q1 brings |11> onto |20> (q0 leaks), off resonance it stays."""
+    import asyncio
+
+    from qcss.config.loader import load_device, load_profile
+    from qcss.core.ndarray import from_proto
+    from qcss.runtime.runner import SimulationContext, create_simulation_runner
+    from qcss.v1 import job_pb2
+
+    prof = load_profile("src/qcss/config/profiles/qblox_cluster_5q.yaml")
+    dev = load_device("src/qcss/config/devices/transmon_5q.yaml")
+    ctx = SimulationContext(prof, dev, tier_policy="AUTO")
+    run = create_simulation_runner(prof, dev, context=ctx)
+    j = job_pb2.Job(num_shots=300)
+    j.waveform_library["pi"].CopyFrom(job_pb2.Waveform(shape=job_pb2.WAVEFORM_SHAPE_SQUARE, length_samples=20))
+    j.waveform_library["fx"].CopyFrom(job_pb2.Waveform(shape=job_pb2.WAVEFORM_SHAPE_SQUARE, length_samples=60))
+    for k, amp in enumerate((0.30, 0.355)):
+        ins = j.program_points.add(indices=[k]).main.instructions
+        for q in (0, 1):
+            ins.add(start_tick=0, play=job_pb2.Play(channel_id=f"xy_q{q}", waveform_id="pi", amplitude=0.5))
+        ins.add(start_tick=24, play=job_pb2.Play(channel_id="flux_q1", waveform_id="fx", amplitude=amp))
+        for q in (0, 1):
+            ins.add(start_tick=92, acquire=job_pb2.Acquire(channel_id=f"ro_q{q}", integration_ticks=1000,
+                                                           mode=job_pb2.ACQUISITION_MODE_DISCRIMINATED,
+                                                           register_index=q, result_key=f"q{q}"))
+
+    async def go():
+        return [c async for c in run("chevron", j, asyncio.Event())]
+    p11 = {}
+    for c in asyncio.run(go()):
+        s = {a.result_key: from_proto(a.states) for a in c.acquisitions}
+        p11[c.sweep_point[0]] = float(np.mean((s["q0"] == 1) & (s["q1"] == 1)))
+    assert p11[0] > 0.85            # 70 MHz from resonance: |11> only picks up a phase
+    assert p11[1] < 0.3             # on resonance: |11> -> |20>

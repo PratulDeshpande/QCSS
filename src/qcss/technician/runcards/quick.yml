@@ -1,0 +1,17 @@
+# Quick check, every few lab-hours: readout, pi pulse, frequency and coherence of every qubit.
+platform: qcss_qblox_5q
+actions:
+  - id: single_shot
+    operation: single_shot_classification
+    parameters: {nshots: 2000}
+  - id: rabi
+    operation: rabi_amplitude
+    parameters: {min_amp: 0.0, max_amp: 0.95, step_amp: 0.025, nshots: 1000, relaxation_time: 300000}
+  - id: ramsey
+    operation: ramsey
+    parameters: {delay_between_pulses_start: 16, delay_between_pulses_end: 20000, delay_between_pulses_step: 400,
+                 detuning: 1000000, nshots: 1000, relaxation_time: 300000}
+  - id: t1
+    operation: t1
+    parameters: {delay_before_readout_start: 16, delay_before_readout_end: 240000, delay_before_readout_step: 6000,
+                 nshots: 1000, relaxation_time: 300000}

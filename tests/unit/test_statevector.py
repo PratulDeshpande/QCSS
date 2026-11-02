@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from qcss.physics.lifter import is_clifford_rz, lift_1q
 from qcss.physics.statevector_t1b import StatevectorT1b
@@ -74,3 +75,67 @@ def test_lifter_1q_and_clifford():
     assert is_clifford_rz(np.pi)
     assert is_clifford_rz(3.0 * np.pi / 2.0)
     assert not is_clifford_rz(0.123)
+
+
+def test_a_warm_qubit_relaxes_to_its_thermal_population():
+    """Generalized amplitude damping: a long idle leaves P1 = nbar / (1 + 2 nbar), from either state."""
+    from qcss.physics.statevector_t1b import StatevectorT1b
+    nbar, t1 = 0.02, 50_000.0
+    p_eq = nbar / (1 + 2 * nbar)
+    rng = np.random.default_rng(1)
+    ones = 0
+    for k in range(4000):
+        eng = StatevectorT1b(1, [t1], [40_000.0], nbar=[nbar], seed=k)
+        if k % 2:
+            eng.psi[:] = [0.0, 1.0]                        # start excited half of the time
+        eng.advance_to(20 * t1, rng)
+        ones += eng.measure(0, rng=rng)
+    assert ones / 4000 == pytest.approx(p_eq, abs=0.008)
+
+
+def test_a_long_idle_on_a_very_short_t1_costs_a_bounded_number_of_steps(monkeypatch):
+    """A killed qubit (T1 ~ 1 ns) idling for a millisecond is simply thermalised: the work does not grow as
+    dt / T1 (M7), and the qubit still lands on its thermal population."""
+    from qcss.physics.statevector_t1b import StatevectorT1b
+    nbar, t1 = 0.05, 1.0
+    p_eq = nbar / (1 + 2 * nbar)
+    calls = [0]
+    real = StatevectorT1b._jump_down
+
+    def counted(self, *args):
+        calls[0] += 1
+        return real(self, *args)
+
+    monkeypatch.setattr(StatevectorT1b, "_jump_down", counted)
+    rng = np.random.default_rng(3)
+    ones = 0
+    for k in range(2000):
+        eng = StatevectorT1b(1, [t1], [1.0], nbar=[nbar], seed=k)
+        eng.psi[:] = [0.0, 1.0]
+        eng.advance_to(1e6, rng)                           # 10^6 T1 of idle
+        ones += eng.measure(0, rng=rng)
+    assert calls[0] / 2000 <= 300                          # was 10^7 steps per idle
+    assert ones / 2000 == pytest.approx(p_eq, abs=0.015)
+
+
+def test_a_warm_qubit_starts_thermally_excited():
+    from qcss.physics.statevector_t1b import StatevectorT1b
+    nbar = 0.05
+    starts = [StatevectorT1b(1, [50_000.0], [40_000.0], nbar=[nbar], seed=k).level_probabilities(0)[1]
+              for k in range(3000)]
+    assert np.mean(starts) == pytest.approx(nbar / (1 + 2 * nbar), abs=0.012)
+
+
+def test_the_measured_t1_is_unchanged_by_temperature():
+    """T1 is what an experiment measures: the decay rate of P1 towards equilibrium is 1/T1 at any nbar."""
+    from qcss.physics.statevector_t1b import StatevectorT1b
+    nbar, t1 = 0.05, 50_000.0
+    p_eq = nbar / (1 + 2 * nbar)
+    rng = np.random.default_rng(2)
+    ones = 0
+    for k in range(4000):
+        eng = StatevectorT1b(1, [t1], [40_000.0], nbar=[nbar], seed=k)
+        eng.psi[:] = [0.0, 1.0]
+        eng.advance_to(t1, rng)
+        ones += eng.measure(0, rng=rng)
+    assert ones / 4000 == pytest.approx(p_eq + (1 - p_eq) * np.exp(-1), abs=0.025)

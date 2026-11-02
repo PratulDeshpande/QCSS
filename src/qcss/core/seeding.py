@@ -9,6 +9,7 @@ them).
 from __future__ import annotations
 
 import hashlib
+import secrets
 from enum import IntEnum
 
 import numpy as np
@@ -25,6 +26,11 @@ class Domain(IntEnum):
     BURSTS = 5     # cosmic-ray / gamma Poisson arrivals
     JITTER = 6     # timing jitter
     STIM = 7       # seed passed into stim samplers
+
+
+def chassis_seed(seed: int | None) -> int:
+    """The global seed a chassis runs with: the operator's, or fresh entropy (a real lab never repeats)."""
+    return seed if seed is not None else secrets.randbits(63)
 
 
 def job_key(job_seed: int | None, job_id: str) -> int:

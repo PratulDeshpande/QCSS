@@ -36,6 +36,13 @@ class CalibrationStore:
                     out.qubits.add().CopyFrom(q)
             return out
 
+    def pin(self) -> tuple[calibration_pb2.CalibrationSnapshot, frozenset[int]]:
+        """The snapshot and the OS-written qubits, read together: what an instrument uploads at job start."""
+        with self._lock:
+            snap = calibration_pb2.CalibrationSnapshot()
+            snap.CopyFrom(self._snap)
+            return snap, frozenset(self._os_set)
+
     def os_set(self) -> frozenset[int]:
         with self._lock:
             return frozenset(self._os_set)
@@ -57,7 +64,3 @@ class CalibrationStore:
                 self._snap.qubits.add().CopyFrom(by_q[k])
             self._snap.calibration_epoch += 1
             return self._snap.calibration_epoch
-
-    def check_epoch(self, expected: int | None) -> None:
-        if expected is not None and expected != self.epoch:
-            raise CalibrationEpochError(f"job expects calibration epoch {expected}, current is {self.epoch}")

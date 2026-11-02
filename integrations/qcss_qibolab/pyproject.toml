@@ -1,0 +1,22 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qcss-qibolab"
+version = "0.1.0"
+description = "Qibolab driver for QCSS instruments: platforms with a QCSS cluster load and run like any lab platform"
+requires-python = ">=3.12,<3.14"
+license = "Apache-2.0"
+authors = [{ name = "Pratul Deshpande" }]
+dependencies = [
+  "qcss>=0.1.0",
+  "qibolab==0.2.17",                # the Controller base class lives in qibolab._core: pin exactly
+  "grpcio>=1.71.2",
+]
+
+[project.optional-dependencies]
+circuits = ["qibo>=0.3,<0.4"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qcss_qibolab"]

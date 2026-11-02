@@ -13,13 +13,13 @@ import numpy as np
 import yaml
 from google.protobuf import json_format
 
-from qcss.adapters.grpc_server import UnsafeBindError, check_bind_is_safe, describe_device, serve
+from qcss.adapters.grpc_server import UnsafeBindError, check_bind_is_safe
 from qcss.config.loader import get_unverified_fields, load_device, load_profile
 from qcss.core.errors import HardwareValidationError, TierRoutingError
 from qcss.core.ndarray import from_proto
+from qcss.core.net import is_local_address
 from qcss.core.timebase import TimeBase
-from qcss.runtime.jobs import JobManager
-from qcss.runtime.runner import SimulationContext, create_simulation_runner, create_simulation_validator
+from qcss.runtime.runner import SimulationContext, create_simulation_runner
 from qcss.v1 import job_pb2
 
 PROFILES_DIR = pathlib.Path(__file__).parent / "config" / "profiles"
@@ -326,52 +326,293 @@ def run(job_path: str, profile: str, device: str | None, shots: int | None, tier
 @click.option("--profile", default="qblox_cluster_5q", help="Hardware profile name or path")
 @click.option("--device", default=None, help="Device specification path or name")
 @click.option("--workers", type=int, default=0, help="Spawn worker processes for simulation (0 = one thread)")
-@click.option("--seed", type=int, default=0, help="Global seed of the server's random-stream tree")
+@click.option("--seed", type=int, default=None,
+              help="Global seed of the random-stream tree (default: fresh entropy, as a real lab never repeats)")
 @click.option("--tls-cert", type=click.Path(dir_okay=False), default=None, help="PEM server certificate (chain)")
 @click.option("--tls-key", type=click.Path(dir_okay=False), default=None, help="PEM private key of --tls-cert")
 @click.option("--token", envvar="QCSS_TOKEN", default=None,
               help="Require 'authorization: Bearer <token>' on every call (env QCSS_TOKEN)")
 @click.option("--insecure", is_flag=True, help="Allow a network bind without TLS or token (trusted networks only)")
-def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: str | None, workers: int, seed: int,
-              tls_cert: str | None, tls_key: str | None, token: str | None, insecure: bool):
-    """Launch the QCSS gRPC ControlService server."""
+@click.option("--time-scale", type=click.FloatRange(min=0), default=1.0, show_default=True,
+              help="Lab seconds per wall second: the chip drifts while idle and jobs take instrument time "
+                   "(0 freezes the chip and runs jobs unpaced)")
+@click.option("--admin-listen", default=None,
+              help="Address of the admin channel (scenarios, modes, truth, faults), e.g. 127.0.0.1:50052")
+@click.option("--admin-token", envvar="QCSS_ADMIN_TOKEN", default=None,
+              help="Token of the admin channel, separate from --token (env QCSS_ADMIN_TOKEN)")
+@click.option("--state-dir", type=click.Path(file_okay=False), default=None,
+              help="Keep the chip's state here, so it survives restarts (drift, defects, scenarios, lab time)")
+@click.option("--deterministic", is_flag=True,
+              help="Honour each job's random_seed so CI can replay shots (a real instrument never does)")
+@click.option("--tier", type=click.Choice(["auto", "t0", "t1a", "t1b", "t2"], case_sensitive=False), default="auto",
+              show_default=True, help="Physics tier for every job (the operator's choice, not the client's)")
+@click.option("--debug-reflection", is_flag=True, help="Advertise the services through gRPC reflection (debugging)")
+@click.option("--board-listen", default=None,
+              help="Also serve a Qibosoq-compatible board face (TCP/JSON) here, e.g. 127.0.0.1:6000")
+def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: str | None, workers: int,
+              seed: int | None, tls_cert: str | None, tls_key: str | None, token: str | None, insecure: bool,
+              time_scale: float, admin_listen: str | None, admin_token: str | None, state_dir: str | None,
+              deterministic: bool, tier: str, debug_reflection: bool, board_listen: str | None):
+    """Run the simulated instrument (the chassis): the instrument link, and optionally the admin link."""
+    from qcss.chassis import Chassis, ChassisConfig
+
     addr = listen or f"{host}:{port}"
     if (tls_cert is None) != (tls_key is None):
         raise click.UsageError("pass both --tls-cert and --tls-key, or neither")
+    if admin_listen is not None and token and not admin_token:
+        raise click.UsageError("the lab link requires a token, so the admin channel needs one too: pass --admin-token")
+    if admin_token and admin_token == token:
+        raise click.UsageError("--admin-token must differ from --token")
+    if admin_listen is not None and admin_listen == addr:
+        raise click.UsageError("--admin-listen must differ from the instrument address")
     try:
         check_bind_is_safe(addr, tls=tls_cert is not None, token=bool(token), insecure=insecure)
+        if admin_listen is not None:
+            check_bind_is_safe(admin_listen, tls=tls_cert is not None, token=bool(admin_token), insecure=insecure)
     except UnsafeBindError as err:
         raise click.UsageError(str(err)) from err
+    if board_listen is not None:
+        b_host, _, b_port = board_listen.rpartition(":")
+        if board_listen.startswith(("unix:", "unix-abstract:")) or not b_host or not b_port.isdigit():
+            raise click.UsageError(f"--board-listen {board_listen}: the board face is TCP host:port (the qibosoq "
+                                   "client connects over TCP only), e.g. 127.0.0.1:6000")
+    if board_listen is not None and not insecure and not is_local_address(board_listen):
+        raise click.UsageError(f"refusing to bind the board face to {board_listen}: the qibosoq protocol has no TLS "
+                               "and no token; pass --insecure on a network you trust")
     tls = (pathlib.Path(tls_cert).read_bytes(), pathlib.Path(tls_key).read_bytes()) if tls_cert and tls_key else None
 
-    p_path = _resolve_profile_path(profile)
-    prof = load_profile(p_path)
+    prof = load_profile(_resolve_profile_path(profile))
     d_path = _resolve_device_path(device)
     dev = load_device(d_path) if d_path else None
-    tb = TimeBase.from_clocks(prof.clock.tick_hz)
+    chassis = Chassis(ChassisConfig(
+        profile=prof, device=dev, lab_address=addr, admin_address=admin_listen, tls=tls, token=token,
+        admin_token=admin_token, state_dir=pathlib.Path(state_dir) if state_dir else None, seed=seed,
+        time_scale=time_scale, deterministic=deterministic, tier=tier.upper(), workers=workers,
+        reflection=debug_reflection, board_address=board_listen))
 
     security = ("TLS" if tls else "plaintext") + (", token required" if token else ", no token")
     click.echo(f"Starting QCSS ControlService on {addr} ({security}) with profile '{prof.profile_name}'...")
+    if chassis.restored:
+        click.echo(f"Restored the chip from {chassis.state_path}.")
 
     async def run_server():
-        ctx = SimulationContext(prof, dev, tb, global_seed=seed)
-        runner = create_simulation_runner(prof, dev, tb, context=ctx, workers=workers)
-        jobs = JobManager(runner, create_simulation_validator(prof, tb, dev, context=ctx))
-        server = await serve(addr, jobs, describe_device(prof, ctx.bindings), ctx.calibration, tls=tls, token=token,
-                             properties=ctx.device_properties)
+        await chassis.start()
         click.secho(f"QCSS ControlService listening on {addr}. Press Ctrl+C to terminate.", fg="green")
+        if admin_listen is not None:
+            click.echo(f"Admin channel on {admin_listen}" + (" (token required)." if admin_token else "."))
+        if board_listen is not None:
+            click.echo(f"Qibosoq board face on {board_listen}.")
         try:
-            await server.wait_for_termination()
+            await chassis.wait()
         except (KeyboardInterrupt, asyncio.CancelledError):
             pass
         finally:
-            await server.stop(grace=1.0)
-            await jobs.close()
+            await chassis.stop()
 
     try:
         asyncio.run(run_server())
     except KeyboardInterrupt:
         click.echo("\nServer terminated by user.")
+
+
+# ---------------------------------------------------------------------- admin channel
+@app.group("admin")
+def admin():
+    """Operate the simulated lab through its admin channel (scenarios, modes, truth, instrument faults)."""
+
+
+def _admin_options(f):
+    f = click.option("--target", "-t", default="127.0.0.1:50052", show_default=True,
+                     help="host:port of the admin channel")(f)
+    f = click.option("--ca", type=click.Path(exists=True, dir_okay=False), default=None,
+                     help="PEM certificate to trust; enables TLS")(f)
+    f = click.option("--token", envvar="QCSS_ADMIN_TOKEN", default=None, help="Admin token (env QCSS_ADMIN_TOKEN)")(f)
+    f = click.option("--insecure", is_flag=True,
+                     help="Allow sending the token without TLS to a non-loopback address (trusted networks only)")(f)
+    return click.option("--timeout", type=float, default=30.0, show_default=True, help="Per-call timeout, s")(f)
+
+
+def _admin_call(opts: dict[str, Any], method: str, request: Any) -> Any:
+    """One AdminService call; prints the gRPC error and exits 1 on failure."""
+    import grpc
+
+    from qcss.admin.v1 import admin_pb2_grpc as apbg
+    from qcss.core.net import is_local_address
+
+    target, ca, token = opts["target"], opts["ca"], opts["token"]
+    if token and ca is None and not opts["insecure"] and not is_local_address(target):
+        raise click.UsageError(f"refusing to send the admin token in cleartext to {target}; pass --ca or --insecure")
+    channel = (grpc.secure_channel(target, grpc.ssl_channel_credentials(pathlib.Path(ca).read_bytes())) if ca
+               else grpc.insecure_channel(target))
+    md = (("authorization", f"Bearer {token}"),) if token else ()
+    try:
+        with channel:
+            return getattr(apbg.AdminServiceStub(channel), method)(request, metadata=md, timeout=opts["timeout"])
+    except grpc.RpcError as err:
+        click.secho(f"Error {err.code().name}: {err.details()}", fg="red")      # type: ignore[attr-defined]
+        sys.exit(1)
+
+
+@admin.command("kill")
+@click.argument("qubit", type=int)
+@_admin_options
+def admin_kill(qubit: int, **opts: Any):
+    """Lose a qubit: it decays within ~100 ns and moves 200 MHz off where it was calibrated."""
+    from qcss.admin.v1 import admin_pb2 as apb
+    _admin_call(opts, "KillQubit", apb.KillQubitRequest(qubit_index=qubit))
+    click.echo(f"qubit {qubit} killed")
+
+
+@admin.command("revive")
+@click.argument("qubit", type=int)
+@_admin_options
+def admin_revive(qubit: int, **opts: Any):
+    """Undo `kill`."""
+    from qcss.admin.v1 import admin_pb2 as apb
+    _admin_call(opts, "ReviveQubit", apb.ReviveQubitRequest(qubit_index=qubit))
+    click.echo(f"qubit {qubit} revived")
+
+
+@admin.command("drift")
+@click.argument("qubit", type=int)
+@click.option("--df-hz", type=float, default=0.0, help="Frequency jump, Hz")
+@click.option("--t1-factor", type=click.FloatRange(min=0, min_open=True), default=1.0, help="Multiply T1 by this")
+@_admin_options
+def admin_drift(qubit: int, df_hz: float, t1_factor: float, **opts: Any):
+    """Step a qubit's frequency and/or T1 (accumulates)."""
+    from qcss.admin.v1 import admin_pb2 as apb
+    _admin_call(opts, "DriftStep", apb.DriftStepRequest(qubit_index=qubit, delta_frequency_hz=df_hz,
+                                                        t1_factor=t1_factor))
+    click.echo(f"qubit {qubit}: df {df_hz:g} Hz, T1 x{t1_factor:g}")
+
+
+@admin.command("tls")
+@click.argument("qubit", type=int)
+@click.option("--coupling-hz", type=float, default=0.0, help="Defect coupling (default 0.5 MHz)")
+@click.option("--linewidth-hz", type=float, default=0.0, help="Defect linewidth (default 1 MHz)")
+@click.option("--detuning-hz", type=float, default=0.0, help="Defect detuning from the qubit")
+@_admin_options
+def admin_tls(qubit: int, coupling_hz: float, linewidth_hz: float, detuning_hz: float, **opts: Any):
+    """A TLS defect drifts into resonance with the qubit."""
+    from qcss.admin.v1 import admin_pb2 as apb
+    _admin_call(opts, "TlsCollision", apb.TlsCollisionRequest(qubit_index=qubit, coupling_hz=coupling_hz,
+                                                              linewidth_hz=linewidth_hz, detuning_hz=detuning_hz))
+    click.echo(f"qubit {qubit}: TLS collision")
+
+
+@admin.command("burst")
+@click.argument("qubit", type=int)
+@click.option("--peak-gamma-per-s", type=float, default=0.0, help="Peak extra decay rate (default 2 per us)")
+@_admin_options
+def admin_burst(qubit: int, peak_gamma_per_s: float, **opts: Any):
+    """A cosmic-ray hit centred on the qubit, now."""
+    from qcss.admin.v1 import admin_pb2 as apb
+    _admin_call(opts, "Burst", apb.BurstRequest(qubit_index=qubit, peak_gamma_per_s=peak_gamma_per_s))
+    click.echo(f"qubit {qubit}: burst")
+
+
+@admin.command("freeze")
+@click.option("--off", is_flag=True, help="Let the chip drift again")
+@_admin_options
+def admin_freeze(off: bool, **opts: Any):
+    """Stop (or resume) drift of the whole chip."""
+    from qcss.admin.v1 import admin_pb2 as apb
+    _admin_call(opts, "FreezeDrift", apb.FreezeDriftRequest(frozen=not off))
+    click.echo("drift resumed" if off else "drift frozen")
+
+
+@admin.command("clear")
+@_admin_options
+def admin_clear(**opts: Any):
+    """Remove every scenario (kills, drift steps, defects, bursts)."""
+    from qcss.admin.v1 import admin_pb2 as apb
+    _admin_call(opts, "ClearScenarios", apb.ClearScenariosRequest())
+    click.echo("scenarios cleared")
+
+
+_TIERS = {"requested": job_pb2.FIDELITY_TIER_UNSPECIFIED, "auto": job_pb2.FIDELITY_TIER_AUTO, "t0": job_pb2.FIDELITY_TIER_T0_SURROGATE,
+          "t1a": job_pb2.FIDELITY_TIER_T1A_STABILIZER, "t1b": job_pb2.FIDELITY_TIER_T1B_STATEVECTOR,
+          "t2": job_pb2.FIDELITY_TIER_T2_LINDBLAD}
+
+
+@admin.command("mode")
+@click.option("--time-scale", type=click.FloatRange(min=0), default=None, help="Lab seconds per wall second")
+@click.option("--deterministic/--realistic", default=None, help="Replay job seeds (CI) or not (lab)")
+@click.option("--tier", type=click.Choice(list(_TIERS), case_sensitive=False), default=None,
+              help="Physics tier for every job ('requested' honours each job's own)")
+@_admin_options
+def admin_mode(time_scale: float | None, deterministic: bool | None, tier: str | None, **opts: Any):
+    """Show how the chassis runs; with options, change it."""
+    from qcss.admin.v1 import admin_pb2 as apb
+    cur = _admin_call(opts, "GetMode", apb.GetModeRequest())
+    mode = cur.mode
+    if time_scale is not None or deterministic is not None or tier is not None:
+        if time_scale is not None:
+            mode.time_scale = time_scale
+        if deterministic is not None:
+            mode.deterministic = deterministic
+        if tier is not None:
+            mode.tier_policy = _TIERS[tier.lower()]
+        mode = _admin_call(opts, "SetMode", apb.SetModeRequest(mode=mode)).mode
+    tier_name = ("REQUESTED" if mode.tier_policy == job_pb2.FIDELITY_TIER_UNSPECIFIED
+                 else job_pb2.FidelityTier.Name(mode.tier_policy).removeprefix("FIDELITY_TIER_").split("_")[0])
+    click.echo(f"time_scale {mode.time_scale:g}  deterministic {'yes' if mode.deterministic else 'no'}  "
+               f"tier {tier_name}  seed {cur.global_seed}")
+
+
+@admin.command("truth")
+@_admin_options
+def admin_truth(**opts: Any):
+    """The chip as it really is now (only the simulator knows this)."""
+    from qcss.admin.v1 import admin_pb2 as apb
+    t = _admin_call(opts, "ReadTruth", apb.ReadTruthRequest())
+    click.echo(f"lab time {t.lab_time_s:.3f} s")
+    click.echo("  qubit   f01 (GHz)   T1 (us)   state")
+    for q in t.qubits:
+        click.echo(f"  {q.qubit_index:>3}   {q.frequency_hz / 1e9:9.6f}  {q.t1_s * 1e6:8.2f}   "
+                   f"{'DEAD' if q.dead else 'ok'}")
+
+
+@admin.command("inspect")
+@click.argument("job_id")
+@_admin_options
+def admin_inspect(job_id: str, **opts: Any):
+    """How the simulator ran a job (tier, noise fidelity, calibration epoch)."""
+    from qcss.admin.v1 import admin_pb2 as apb
+    from qcss.v1 import result_pb2
+    r = _admin_call(opts, "InspectJob", apb.InspectJobRequest(job_id=job_id))
+    click.echo(f"tier {job_pb2.FidelityTier.Name(r.tier_used)}  "
+               f"noise {result_pb2.NoiseFidelity.Name(r.noise_fidelity)}  epoch {r.calibration_epoch}")
+    for w in r.warnings:
+        click.echo(f"  warning: {w}")
+
+
+@admin.command("fault")
+@click.argument("kind", type=click.Choice(["hang", "drop", "reboot", "slow-upload"], case_sensitive=False))
+@click.option("--count", type=click.IntRange(min=1), default=1, show_default=True, help="Calls affected")
+@click.option("--duration", type=click.FloatRange(min=0), default=None,
+              help="Seconds (required for hang, reboot and slow-upload)")
+@_admin_options
+def admin_fault(kind: str, count: int, duration: float | None, **opts: Any):
+    """Make the instrument misbehave: hang or drop calls, reboot, or upload slowly."""
+    from qcss.admin.v1 import admin_pb2 as apb
+    if kind.lower() != "drop" and not duration:
+        raise click.UsageError(f"--duration (seconds, > 0) is required for a {kind} fault")
+    duration = duration or 0.0
+    fault = {"hang": apb.INSTRUMENT_FAULT_HANG, "drop": apb.INSTRUMENT_FAULT_DROP,
+             "reboot": apb.INSTRUMENT_FAULT_REBOOT, "slow-upload": apb.INSTRUMENT_FAULT_SLOW_UPLOAD}[kind.lower()]
+    _admin_call(opts, "InjectInstrumentFault",
+                apb.InjectInstrumentFaultRequest(fault=fault, count=count, duration_s=duration))
+    click.echo(f"instrument fault: {kind} x{count}" + (f" for {duration:g} s" if duration else ""))
+
+
+@admin.command("clear-faults")
+@_admin_options
+def admin_clear_faults(**opts: Any):
+    """Remove every pending instrument fault."""
+    from qcss.admin.v1 import admin_pb2 as apb
+    _admin_call(opts, "ClearInstrumentFaults", apb.ClearInstrumentFaultsRequest())
+    click.echo("instrument faults cleared")
 
 
 # ---------------------------------------------------------------------- remote client
@@ -533,6 +774,71 @@ def remote_run(target: str, ca: str | None, token: str | None, timeout: float, i
             "warnings": sorted({w for ch in chunks for w in ch.warnings})}, indent=2), encoding="utf-8")
         click.echo(f"Saved results to: {pathlib.Path(output).resolve()}")
     sys.exit(0 if st.state == result_pb2.JOB_STATE_COMPLETED else 1)
+
+
+
+# ---------------------------------------------------------------------- virtual technician
+RUNCARDS_DIR = pathlib.Path(__file__).parent / "technician" / "runcards"
+# What each request scope runs, and how long it takes on a 5-qubit chip (the ETA in the acknowledgement).
+CALIBRATION_SCOPES = {"quick": ("quick.yml", 900.0), "device": ("full.yml", 3600.0), "cz": ("cz.yml", 7200.0)}
+
+
+@app.group("technician")
+def technician():
+    """The lab's calibration staff: Qibocal runs on a schedule and on request, writing the platform."""
+
+
+@technician.command("request")
+@click.option("--requests-dir", type=click.Path(file_okay=False), required=True, help="The technician's request spool")
+@click.option("--scope", type=str, default="device", show_default=True,
+              help=f"What to calibrate: {', '.join(CALIBRATION_SCOPES)}")
+def technician_request(requests_dir: str, scope: str):
+    """Ask for a calibration (the hook a Quark adapter's request_calibration calls); prints the acknowledgement."""
+    from qcss.technician.schedule import request_calibration
+    eta = CALIBRATION_SCOPES.get(scope, ("", 0.0))[1]
+    ack = request_calibration(pathlib.Path(requests_dir), [scope], expected_duration_s=eta,
+                              known_scopes=CALIBRATION_SCOPES)
+    click.echo(json.dumps(ack))
+    if not ack["accepted"]:
+        sys.exit(1)
+
+
+@technician.command("run")
+@click.option("--platforms-dir", type=click.Path(exists=True, file_okay=False), required=True,
+              help="Folder of Qibolab platforms (QIBOLAB_PLATFORMS)")
+@click.option("--platform", required=True, help="Platform to keep calibrated, e.g. qcss_qblox_5q")
+@click.option("--reports", type=click.Path(file_okay=False), required=True, help="Where Qibocal's reports go")
+@click.option("--requests-dir", type=click.Path(file_okay=False), required=True, help="The request spool")
+@click.option("--env", "env_pairs", multiple=True, help="NAME=VALUE for Qibocal's environment (instrument address)")
+@click.option("--quick-every", type=click.FloatRange(min=1), default=4 * 3600.0, show_default=True, help="Seconds")
+@click.option("--full-every", type=click.FloatRange(min=1), default=86400.0, show_default=True, help="Seconds")
+@click.option("--cz-every", type=click.FloatRange(min=1), default=7 * 86400.0, show_default=True, help="Seconds")
+@click.option("--poll", type=click.FloatRange(min=0.1), default=30.0, show_default=True, help="Idle poll period, s")
+def technician_run(platforms_dir: str, platform: str, reports: str, requests_dir: str, env_pairs: tuple[str, ...],
+                   quick_every: float, full_every: float, cz_every: float, poll: float):
+    """Keep a platform calibrated: requests first, then quick checks, full bring-ups and CZ as they come due."""
+    from qcss.technician import Technician
+    from qcss.technician.schedule import Shift
+    bad = [p for p in env_pairs if "=" not in p or not p.split("=", 1)[0]]
+    if bad:
+        raise click.BadParameter(f"expected NAME=VALUE, got {bad[0]!r}", param_hint="--env")
+    env = dict(p.split("=", 1) for p in env_pairs)
+    tech = Technician(pathlib.Path(platforms_dir), platform, reports=pathlib.Path(reports), env=env)
+    cards = {k: RUNCARDS_DIR / f for k, (f, _) in CALIBRATION_SCOPES.items()}
+
+    def calibrate(runcard: pathlib.Path):
+        outcome = tech.calibrate(runcard)
+        click.echo(f"{runcard.stem}: {'ok' if outcome.ok else 'FAILED'} ({outcome.report_dir})")
+        return outcome
+    shift = Shift(calibrate, {cards["quick"]: quick_every, cards["device"]: full_every, cards["cz"]: cz_every},
+                  pathlib.Path(requests_dir), cards,
+                  state_file=pathlib.Path(reports) / "technician-state.json")
+    try:
+        while True:
+            if not shift.step():
+                time.sleep(poll)
+    except KeyboardInterrupt:
+        click.echo("\nTechnician off shift.")
 
 
 if __name__ == "__main__":
