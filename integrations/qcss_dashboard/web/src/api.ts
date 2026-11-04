@@ -16,7 +16,12 @@ async function call<T>(method: string, path: string, body?: unknown): Promise<T>
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const r = await fetch(`/api${path}`, { method, headers, body: body === undefined ? undefined : JSON.stringify(body) });
   const text = await r.text();
-  const data = text ? JSON.parse(text) : {};
+  let data: any = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    data = { detail: text.slice(0, 500) };          // a proxy or server error page, not the bridge's JSON
+  }
   if (!r.ok) throw new ApiError(r.status, String(data.detail ?? r.statusText), data);
   return data as T;
 }

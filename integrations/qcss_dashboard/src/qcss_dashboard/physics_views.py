@@ -125,8 +125,14 @@ def chip_view(device: DeviceSpec, hours: float = 24.0, steps: int = 96, seed: in
 # ------------------------------------------------------------------ readout
 def readout_view(profile: HardwareProfile, device: DeviceSpec, qubit: int = 0, shots: int = 300,
                  seed: int = 1, integration_ns: float = 1000.0) -> dict[str, Any]:
+    if not 10.0 <= integration_ns <= 20_000.0:
+        raise ValueError("integration_ns must be between 10 and 20000")
+    if not 1 <= shots <= 2000:
+        raise ValueError("shots must be between 1 and 2000")
     ctx = SimulationContext(profile, device)
     cid = f"ro_q{qubit}"
+    if cid not in ctx.bindings:
+        raise ValueError(f"no readout channel for qubit {qubit} (device {device.device_name})")
     b = ctx.bindings[cid]
     snap = ctx.calibration.snapshot([])
     phys = ctx._physical_readout(cid, snap, frozenset())
@@ -220,6 +226,8 @@ def signal_view(params: dict[str, Any]) -> dict[str, Any]:
     if fl is not None:
         fs = float(fl.get("fs_hz", 1e9))
         n = int(fl.get("samples", 2000))
+        if not 10 <= n <= 20_000:
+            raise ValueError("flux samples must be between 10 and 20000")
         step = np.ones(n)
         terms = [tuple(map(float, tt)) for tt in fl.get("exp_terms", [])]
         bias = fl.get("bias_tee_tau_s")

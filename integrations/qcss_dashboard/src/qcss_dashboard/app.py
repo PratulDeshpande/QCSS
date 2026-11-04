@@ -14,12 +14,16 @@ import pathlib
 import threading
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 from fastapi import Body, FastAPI, HTTPException, Request, WebSocket
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from google.protobuf.json_format import ParseError
 
 import qcss
+from qcss.core.errors import TierRoutingError
+from qcss.runtime.calibration_store import CalibrationEpochError
 from qcss_dashboard import __version__
 from qcss_dashboard.admin import LinkError, Links, admin_action, admin_state, inspect_job
 from qcss_dashboard.architecture import architecture
@@ -42,6 +46,37 @@ OPEN_PATHS = {"/api/health"}
 JsonBody = Annotated[dict[str, Any], Body()]
 EXAMPLES = pathlib.Path(qcss.__file__).resolve().parents[2] / "examples" / "jobs"
 SANDBOX_SLOTS = threading.BoundedSemaphore(2)      # heavy simulations at most two at a time (laptop-friendly)
+SANDBOX_WAIT_S = 5.0                               # then answer 503 instead of parking a worker thread
+LOOPBACK_NAMES = ("127.0.0.1", "localhost", "::1")
+
+
+@contextlib.contextmanager
+def _sandbox_slot():
+    if not SANDBOX_SLOTS.acquire(timeout=SANDBOX_WAIT_S):
+        raise HTTPException(503, "the sandbox is busy with other simulations; try again shortly")
+    try:
+        yield
+    finally:
+        SANDBOX_SLOTS.release()
+
+
+def _num(body: dict[str, Any], key: str, default: float, lo: float, hi: float, cast: Any = float) -> Any:
+    """A bounded number from a request body; a cleared field (null) means the default."""
+    v = body.get(key, default)
+    if v is None:
+        v = default
+    try:
+        v = cast(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"{key} must be a number") from None
+    if not lo <= v <= hi:
+        raise ValueError(f"{key} must be between {lo:g} and {hi:g}")
+    return v
+
+
+def _same_origin(origin: str | None, host: str | None) -> bool:
+    """True when there is no Origin (non-browser client) or it names this very host:port."""
+    return origin is None or (host is not None and urlsplit(origin).netloc.lower() == host.lower())
 
 
 def create_app(config: Settings | None = None) -> FastAPI:
@@ -51,13 +86,24 @@ def create_app(config: Settings | None = None) -> FastAPI:
     bench = LabBench(links)
     audit = Audit(settings.workspace)
 
-    def start_embedded(profile: str, device: str | None, time_scale: float) -> None:
+    def make_embedded(profile: str, device: str | None, time_scale: float) -> EmbeddedChassis:
         emb = EmbeddedChassis(store.load_profile(profile), store.load_device(device), profile_name=profile,
                               device_name=device, time_scale=time_scale,
                               state_dir=pathlib.Path(settings.workspace) / "chip-state" / f"{profile}__{device}")
-        emb.start()
+        try:
+            emb.start()
+        except BaseException:
+            with contextlib.suppress(Exception):
+                emb.stop()
+            raise
+        return emb
+
+    def adopt(emb: EmbeddedChassis, profile: str, device: str | None, time_scale: float) -> None:
         settings.chassis_profile, settings.chassis_device, settings.chassis_time_scale = profile, device, time_scale
         links.attach(emb)
+
+    def start_embedded(profile: str, device: str | None, time_scale: float) -> None:
+        adopt(make_embedded(profile, device, time_scale), profile, device, time_scale)
 
     @contextlib.asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncGenerator[None]:
@@ -73,18 +119,27 @@ def create_app(config: Settings | None = None) -> FastAPI:
                   openapi_url="/api/openapi.json", lifespan=lifespan)
     app.state.settings, app.state.configs, app.state.links = settings, store, links
 
+    allowed_hosts = {h.lower() for h in (settings.allowed_hosts or LOOPBACK_NAMES)}
+
+    def host_ok(hostname: str | None) -> bool:
+        return (hostname or "").strip("[]").lower() in allowed_hosts
+
     def token_ok(given: str) -> bool:
         return not settings.access_token or hmac.compare_digest(given.encode(), settings.access_token.encode())
 
     @app.middleware("http")
     async def guards(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         path = request.url.path
+        if not host_ok(request.url.hostname):           # DNS-rebinding guard: only names this bridge answers to
+            return JSONResponse({"detail": "unknown host"}, status_code=400)
         if (path.startswith("/api/") and path not in OPEN_PATHS
                 and not token_ok(request.headers.get(TOKEN_HEADER) or "")):
             return JSONResponse({"detail": "dashboard access token required"}, status_code=401)
         if path.startswith("/api/") and request.method in MUTATING:
             if request.headers.get(CSRF_HEADER) != "1":
                 return JSONResponse({"detail": f"missing {CSRF_HEADER} header (CSRF guard)"}, status_code=403)
+            if not _same_origin(request.headers.get("origin"), request.headers.get("host")):
+                return JSONResponse({"detail": "cross-origin request refused"}, status_code=403)
             if settings.read_only and not path.startswith(("/api/sandbox/", "/api/views/")):
                 return JSONResponse({"detail": "the dashboard runs in read-only mode"}, status_code=403)
         return await call_next(request)
@@ -100,6 +155,22 @@ def create_app(config: Settings | None = None) -> FastAPI:
     @app.exception_handler(ValueError)
     async def _value_error(_: Request, exc: ValueError) -> JSONResponse:
         return JSONResponse({"detail": str(exc)}, status_code=400)
+
+    @app.exception_handler(ParseError)
+    async def _parse_error(_: Request, exc: ParseError) -> JSONResponse:
+        return JSONResponse({"detail": f"invalid message: {exc}"}, status_code=400)
+
+    @app.exception_handler(TypeError)
+    async def _type_error(_: Request, exc: TypeError) -> JSONResponse:
+        return JSONResponse({"detail": f"invalid input: {exc}"}, status_code=400)
+
+    @app.exception_handler(TierRoutingError)
+    async def _tier_error(_: Request, exc: TierRoutingError) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=409)
+
+    @app.exception_handler(CalibrationEpochError)
+    async def _epoch_error(_: Request, exc: CalibrationEpochError) -> JSONResponse:
+        return JSONResponse({"detail": str(exc)}, status_code=409)
 
     # ------------------------------------------------------------------ meta
     @app.get("/api/health")
@@ -193,8 +264,8 @@ def create_app(config: Settings | None = None) -> FastAPI:
         _, dev = _models(body)
         if dev is None:
             raise ConfigError("the chip view needs a device")
-        return chip_view(dev, hours=float(body.get("hours", 24.0)), steps=min(max(int(body.get("steps", 96)), 2),
-                                                                             1000), seed=int(body.get("seed", 1)))
+        return chip_view(dev, hours=_num(body, "hours", 24.0, 0.01, 720.0), steps=_num(body, "steps", 96, 2, 1000, int),
+                         seed=_num(body, "seed", 1, 0, 2**31, int))
 
     @app.get("/api/views/readout")
     def ro_get(profile: str | None = None, device: str | None = None, qubit: int = 0, shots: int = 300,
@@ -209,8 +280,9 @@ def create_app(config: Settings | None = None) -> FastAPI:
         p, d = _models(body)
         if d is None:
             raise ConfigError("the readout view needs a device")
-        return readout_view(p, d, qubit=int(body.get("qubit", 0)), shots=min(int(body.get("shots", 300)), 2000),
-                            seed=int(body.get("seed", 1)), integration_ns=float(body.get("integration_ns", 1000.0)))
+        return readout_view(p, d, qubit=_num(body, "qubit", 0, 0, 1023, int),
+                            shots=_num(body, "shots", 300, 1, 2000, int), seed=_num(body, "seed", 1, 0, 2**31, int),
+                            integration_ns=_num(body, "integration_ns", 1000.0, 10.0, 20_000.0))
 
     @app.post("/api/views/signal")
     def signal(body: JsonBody) -> dict[str, Any]:
@@ -220,21 +292,21 @@ def create_app(config: Settings | None = None) -> FastAPI:
     @app.post("/api/sandbox/explain")
     def sandbox_explain(body: JsonBody) -> dict[str, Any]:
         p, d = _models(body)
-        with SANDBOX_SLOTS:
+        with _sandbox_slot():
             return explain(p, d, body.get("job") or {}, tier=str(body.get("tier", "AUTO")),
-                           seed=int(body.get("seed", 1)), shots=int(body.get("shots", 200)),
-                           point=int(body.get("point", 0)))
+                           seed=_num(body, "seed", 1, 0, 2**31, int), shots=_num(body, "shots", 200, 1, 2000, int),
+                           point=_num(body, "point", 0, 0, 100_000, int))
 
     @app.post("/api/sandbox/experiment")
     def sandbox_experiment(body: JsonBody) -> dict[str, Any]:
         p, d = _models(body)
         params = {k: body[k] for k in ("pi_amplitude", "max_delay_us", "span_mhz", "detuning_mhz")
                   if body.get(k) is not None}
-        with SANDBOX_SLOTS:
-            return run_in_sandbox(str(body.get("kind", "rabi")), p, d, qubit=int(body.get("qubit", 0)),
-                                  points=min(int(body.get("points", 21)), 101),
-                                  shots=min(int(body.get("shots", 300)), 5000), seed=int(body.get("seed", 1)),
-                                  tier=str(body.get("tier", "AUTO")), **params)
+        with _sandbox_slot():
+            return run_in_sandbox(str(body.get("kind", "rabi")), p, d, qubit=_num(body, "qubit", 0, 0, 1023, int),
+                                  points=_num(body, "points", 21, 2, 101, int),
+                                  shots=_num(body, "shots", 300, 1, 5000, int),
+                                  seed=_num(body, "seed", 1, 0, 2**31, int), tier=str(body.get("tier", "AUTO")), **params)
 
     # ------------------------------------------------------------------ admin channel (ground truth, knobs)
     @app.get("/api/admin/state")
@@ -297,11 +369,17 @@ def create_app(config: Settings | None = None) -> FastAPI:
         ts = float(body.get("time_scale", settings.chassis_time_scale))
         store.load_profile(profile)                       # fail before stopping the running chassis
         store.load_device(device)
+        try:
+            new = make_embedded(profile, device, ts)          # the running chassis keeps serving meanwhile
+        except Exception as exc:
+            audit.record("restart_chassis", {"profile": profile, "device": device, "time_scale": ts}, False, str(exc))
+            raise ConfigError(f"the new chassis did not start ({exc}); the running chassis is unchanged", 409) from exc
         with links.lock:
-            if links.embedded is not None:
-                links.embedded.stop()
-                links.attach(None)
-            start_embedded(profile, device, ts)
+            old = links.embedded
+            adopt(new, profile, device, ts)
+        if old is not None:
+            with contextlib.suppress(Exception):
+                old.stop()
         audit.record("restart_chassis", {"profile": profile, "device": device, "time_scale": ts}, True)
         return chassis_info()
 
@@ -311,6 +389,9 @@ def create_app(config: Settings | None = None) -> FastAPI:
 
     @app.websocket("/api/events")
     async def events(ws: WebSocket) -> None:
+        if not host_ok(ws.url.hostname) or not _same_origin(ws.headers.get("origin"), ws.headers.get("host")):
+            await ws.close(code=4403)                 # cross-site WebSocket hijacking guard (browsers skip CORS here)
+            return
         if not token_ok(ws.query_params.get("token", "")):
             await ws.close(code=4401)
             return

@@ -14,6 +14,6 @@ def settings(tmp_path) -> Settings:
 
 @pytest.fixture
 def client(settings) -> TestClient:
-    return TestClient(create_app(settings))
+    return TestClient(base_url="http://127.0.0.1", app=create_app(settings))
 
 

@@ -29,6 +29,7 @@ from qcss.v1 import job_pb2, result_pb2
 from qcss_dashboard.experiments import TIERS
 
 MAX_SHOTS = 2000
+MAX_POINTS = 201
 
 
 def _ds(n: int, max_pts: int = 300) -> np.ndarray:
@@ -100,6 +101,8 @@ def explain(profile: HardwareProfile, device: DeviceSpec | None, job_json: dict[
     except (TierRoutingError, CalibrationEpochError) as exc:
         return {"valid": False, "stage": "route", "violations": [{"path": "job.requested_tier",
                                                                   "description": str(exc)}]}
+    if len(plan.points) > MAX_POINTS:
+        raise ValueError(f"{len(plan.points)} sweep points; the sandbox runs at most {MAX_POINTS} per explain run")
     stages.append({"id": "plan", "ms": (time.perf_counter() - t0) * 1e3,
                    "summary": f"{len(plan.points)} point(s), tier {plan.tier}: {plan.reason}"})
     k = max(0, min(point, len(plan.points) - 1))
@@ -256,34 +259,39 @@ def explain(profile: HardwareProfile, device: DeviceSpec | None, job_json: dict[
 
 def _trajectory(ctx: SimulationContext, qubits: list[int], f_now: list[float], t1_now: list[float], *,
                 segments: list[tuple[str, Any]], end_ns: float, slices: int = 60) -> dict[str, Any]:
-    """Populations and Bloch vectors through the drive pulses, re-evolved slice by slice on the T2 engine."""
+    """Populations and Bloch vectors through the drive pulses, re-evolved slice by slice on the T2 engine.
+
+    The drive is first laid onto one common sample grid (segments on the same qubit add sample by sample at their
+    absolute times), then cut at integer sample indices, so every sample is evolved exactly once.
+    """
     drive = [s for _, s in segments if s.kind == "drive"]
     if not drive or len(qubits) > 2:
         return {"t_ns": [], "populations": [], "bloch": [], "note": "trajectory needs 1-2 driven qubits"}
     eng = ctx.make_engine("T2", qubits, f_now, t1_now, seed=0)
-    t_end = max(s.t1_ns for s in drive)
-    times, pops, blochs = [0.0], [[eng.level_probabilities(i).tolist() for i in range(len(qubits))]], []
+    dt = min(s.dt_ns for s in drive)
+    t_start = min(s.t0_ns for s in drive)
+    n_total = int(np.ceil((max(s.t1_ns for s in drive) - t_start) / dt - 1e-9))
+    grid: dict[int, np.ndarray] = {}
+    for s in drive:
+        arr = grid.setdefault(s.index, np.zeros(n_total, dtype=np.complex128))
+        # Nearest-sample placement of this segment on the common grid (resampled if its rate differs).
+        k = np.arange(int(np.ceil(s.dt_ns * len(s.samples) / dt - 1e-9)))
+        src = np.clip(((k + 0.5) * dt / s.dt_ns).astype(int), 0, len(s.samples) - 1)
+        off = round((s.t0_ns - t_start) / dt)
+        hi = min(n_total, off + len(k))
+        arr[off:hi] += np.asarray(s.samples)[src[:hi - off]]
 
     def bloch_now() -> list[list[float]]:
         rho = eng.rho
         return [_bloch(np.asarray((rho.ptrace(i) if len(qubits) > 1 else rho).full())) for i in range(len(qubits))]
 
-    blochs.append(bloch_now())
-    edges = np.linspace(min(s.t0_ns for s in drive), t_end, slices + 1)
-    for a, b in itertools.pairwise(edges):
-        drives: dict[int, np.ndarray] = {}
-        dt = None
-        for s in drive:
-            k0 = int(np.clip(np.floor((a - s.t0_ns) / s.dt_ns), 0, len(s.samples)))
-            k1 = int(np.clip(np.ceil((b - s.t0_ns) / s.dt_ns), 0, len(s.samples)))
-            if k1 > k0:
-                drives[s.index] = drives.get(s.index, 0) + s.samples[k0:k1]
-                dt = s.dt_ns
-        if drives and dt is not None:
-            n = min(len(v) for v in drives.values())
-            eng.evolve_segment(max(a, eng.clock), dt, drives={q: v[:n] for q, v in drives.items()})
-        else:
-            eng.advance_to(b)
+    eng.advance_to(t_start)
+    times = [float(eng.clock)]
+    pops = [[eng.level_probabilities(i).tolist() for i in range(len(qubits))]]
+    blochs = [bloch_now()]
+    edges = np.unique(np.linspace(0, n_total, slices + 1).round().astype(int))
+    for k0, k1 in itertools.pairwise(edges):
+        eng.evolve_segment(t_start + k0 * dt, dt, drives={q: a[k0:k1] for q, a in grid.items()})
         times.append(float(eng.clock))
         pops.append([eng.level_probabilities(i).tolist() for i in range(len(qubits))])
         blochs.append(bloch_now())

@@ -43,7 +43,7 @@ def test_mutating_calls_need_the_csrf_header(client):
 
 
 def test_read_only_mode_refuses_writes(tmp_path):
-    c = TestClient(create_app(Settings(workspace=tmp_path, lab_target=None, admin_target=None,
+    c = TestClient(base_url="http://127.0.0.1", app=create_app(Settings(workspace=tmp_path, lab_target=None, admin_target=None,
                                        embedded_chassis=False, read_only=True)))
     cfg = c.get("/api/configs/device/transmon_5q").json()
     r = c.put("/api/configs/device/copy1", json={"yaml": cfg["yaml"]}, headers=MUTATE)
@@ -51,7 +51,7 @@ def test_read_only_mode_refuses_writes(tmp_path):
 
 
 def test_access_token_guards_every_api_call(tmp_path):
-    c = TestClient(create_app(Settings(workspace=tmp_path, lab_target=None, admin_target=None,
+    c = TestClient(base_url="http://127.0.0.1", app=create_app(Settings(workspace=tmp_path, lab_target=None, admin_target=None,
                                        embedded_chassis=False, access_token="s3cret")))
     assert c.get("/api/registry").status_code == 401
     assert c.get("/api/registry", headers={"X-Dashboard-Token": "s3cret"}).status_code == 200
@@ -61,7 +61,7 @@ def test_access_token_guards_every_api_call(tmp_path):
 def test_tokens_never_appear_in_any_response(tmp_path):
     s = Settings(workspace=tmp_path, lab_target="127.0.0.1:1", admin_target="127.0.0.1:2", lab_token="LABTOKEN",
                  admin_token="ADMINTOKEN", embedded_chassis=False)
-    c = TestClient(create_app(s))
+    c = TestClient(base_url="http://127.0.0.1", app=create_app(s))
     for path in ("/api/health", "/api/registry", "/api/settings"):
         text = c.get(path).text
         assert "LABTOKEN" not in text and "ADMINTOKEN" not in text, path

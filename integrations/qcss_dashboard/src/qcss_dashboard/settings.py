@@ -26,6 +26,7 @@ class Settings:
     chassis_time_scale: float = 1.0
     static_dir: pathlib.Path | None = None    # built frontend (web/dist) served at /
     poll_interval_s: float = 2.0
+    allowed_hosts: list[str] | None = None    # Host names the bridge answers to; None = loopback names only
 
     def public(self) -> dict:
         """What the browser may know about the bridge: never a token."""

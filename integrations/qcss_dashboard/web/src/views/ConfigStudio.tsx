@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Json } from "../api";
+import { calibrationWrite } from "../calibration";
 import { useRegistry, type FieldDoc, type Registry } from "../registry";
 import { useWorkbench } from "../state";
 import {
@@ -103,20 +104,20 @@ function DataTree({ data, model, path, onEdit }: { data: any; model: string; pat
   );
 }
 
-function Leaf({ value, doc, onChange }: { value: any; doc?: FieldDoc; onChange: (v: any) => void }) {
+export function Leaf({ value, doc, onChange }: { value: any; doc?: FieldDoc; onChange: (v: any) => void }) {
   if (typeof value === "boolean") return <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} aria-label={doc?.field} />;
   if (doc?.choices?.length) {
     return <select value={String(value)} onChange={(e) => onChange(e.target.value)} className="h-6 rounded border border-line bg-s2 px-1 text-[12px]" aria-label={doc.field}>{doc.choices.map((c) => <option key={c}>{c}</option>)}</select>;
   }
   if (typeof value === "number") {
-    return <input type="number" defaultValue={value} step="any" onBlur={(e) => { const n = e.target.valueAsNumber; if (Number.isFinite(n) && n !== value) onChange(n); }}
+    return <input key={String(value)} type="number" defaultValue={value} step="any" onBlur={(e) => { const n = e.target.valueAsNumber; if (Number.isFinite(n) && n !== value) onChange(n); }}
       className="num h-6 w-36 rounded border border-line bg-s2 px-1.5 text-[12px]" aria-label={doc?.field} />;
   }
   if (Array.isArray(value)) {
-    return <input defaultValue={JSON.stringify(value)} onBlur={(e) => { try { const v = JSON.parse(e.target.value); if (JSON.stringify(v) !== JSON.stringify(value)) onChange(v); } catch { e.target.value = JSON.stringify(value); } }}
+    return <input key={JSON.stringify(value)} defaultValue={JSON.stringify(value)} onBlur={(e) => { try { const v = JSON.parse(e.target.value); if (JSON.stringify(v) !== JSON.stringify(value)) onChange(v); } catch { e.target.value = JSON.stringify(value); } }}
       className="num h-6 w-56 rounded border border-line bg-s2 px-1.5 text-[12px]" aria-label={doc?.field} />;
   }
-  return <input defaultValue={value ?? ""} onBlur={(e) => { const v = e.target.value === "" && value === null ? null : e.target.value; if (v !== value) onChange(v); }}
+  return <input key={String(value)} defaultValue={value ?? ""} onBlur={(e) => { const v = e.target.value === "" && value === null ? null : e.target.value; if (v !== value) onChange(v); }}
     className="h-6 w-56 rounded border border-line bg-s2 px-1.5 text-[12px]" aria-label={doc?.field} placeholder={value === null ? "null" : ""} />;
 }
 
@@ -242,7 +243,7 @@ function CalibrationEditor() {
   const [msg, setMsg] = useState("");
   const qcal = (cal.data?.qubits ?? []).find((x: Json) => x.qubit_index === q) ?? {};
   const write = useMutation({
-    mutationFn: () => api.put<Json>("/lab/calibration", { snapshot: { qubits: [{ qubit_index: q, ...edits }] }, expected_epoch: cal.data?.calibration_epoch ?? 0 }),
+    mutationFn: () => api.put<Json>("/lab/calibration", { snapshot: calibrationWrite(qcal, edits, q), expected_epoch: cal.data?.calibration_epoch ?? 0 }),
     onSuccess: (r) => { setMsg(`written: epoch ${r.new_epoch}`); setEdits({}); qc.invalidateQueries({ queryKey: ["calibration"] }); },
     onError: (e) => setMsg(String((e as Error).message)),
   });

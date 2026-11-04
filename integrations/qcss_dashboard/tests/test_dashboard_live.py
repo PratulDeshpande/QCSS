@@ -26,7 +26,7 @@ def live(tmp_path):
     if not _loopback_ok():
         pytest.skip("loopback sockets not permitted")
     s = Settings(workspace=tmp_path, embedded_chassis=True, chassis_time_scale=0.0, poll_interval_s=0.2)
-    with TestClient(create_app(s)) as c:
+    with TestClient(base_url="http://127.0.0.1", app=create_app(s)) as c:
         yield c
 
 
@@ -87,7 +87,7 @@ def test_calibration_round_trip_uses_compare_and_swap(live):
 
 
 def test_event_stream_pushes_state_without_tokens(live):
-    with live.websocket_connect("/api/events") as ws:
+    with live.websocket_connect("ws://127.0.0.1/api/events") as ws:
         msg = ws.receive_text()
     assert '"truth"' in msg and "Bearer" not in msg
     settings = live.app.state.settings

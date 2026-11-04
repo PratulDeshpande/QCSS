@@ -69,14 +69,18 @@ def settings_from(*, workspace: str | None, lab: str | None, admin: str | None, 
 @click.option("--tls-cert", default=None, help="TLS certificate for the dashboard itself")
 @click.option("--tls-key", default=None, help="TLS key for the dashboard itself")
 @click.option("--insecure", is_flag=True, help="Allow a non-loopback bind without TLS and a login token")
+@click.option("--allowed-host", multiple=True, help="Host name browsers use to reach a network-bound dashboard (repeatable)")
 def main(host: str, port: int, workspace: str | None, embedded: bool, profile: str, device: str, time_scale: float,
          lab: str, admin_: str, ca: str | None, read_only: bool, static: str | None, tls_cert: str | None,
-         tls_key: str | None, insecure: bool) -> None:
+         tls_key: str | None, insecure: bool, allowed_host: tuple[str, ...]) -> None:
     """Start the QCSS Explorer dashboard."""
     s = settings_from(workspace=workspace, lab=lab, admin=admin_, ca=ca, access_token=None, read_only=read_only,
                       embedded=embedded, profile=profile, device=device or None, time_scale=time_scale,
                       static=static)
     check_bind(host, tls=bool(tls_cert and tls_key), token=bool(s.access_token), insecure=insecure)
+    if not is_local_address(f"{host}:0"):
+        extra = [] if host in ("0.0.0.0", "::") else [host]
+        s.allowed_hosts = ["127.0.0.1", "localhost", "::1", *allowed_host, *extra]
     import uvicorn
 
     from qcss_dashboard.app import create_app
