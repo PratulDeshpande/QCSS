@@ -345,12 +345,12 @@ def _check_qick_options(qick_ns: str | None, qick_listen: str, start_ns: bool, i
     l_host, _, l_port = qick_listen.partition(":")
     if not l_host or (l_port and not l_port.isdigit()):
         raise click.UsageError(f"--qick-listen {qick_listen}: give host or host:port, e.g. 127.0.0.1")
-    if importlib.util.find_spec("Pyro4") is None:
-        raise click.UsageError("the native QICK board needs Pyro4: pip install 'qcss[qick]'")
     for flag, addr in (("--qick-listen", f"{l_host}:{l_port or 0}"), ("--qick-ns", qick_ns if start_ns else None)):
         if addr is not None and not insecure and not is_local_address(addr):
             raise click.UsageError(f"refusing to bind {flag} {addr} to the network: Pyro4 has no TLS and no token "
                                    "(QICK's own boards neither); pass --insecure on a network you trust")
+    if importlib.util.find_spec("Pyro4") is None:      # last: the operator's own mistakes are reported first
+        raise click.UsageError("the native QICK board needs Pyro4: pip install 'qcss[qick]'")
 
 
 @app.command("serve")
@@ -428,8 +428,8 @@ def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: st
     if board_listen is not None and not insecure and not is_local_address(board_listen):
         raise click.UsageError(f"refusing to bind the board face to {board_listen}: the qibosoq protocol has no TLS "
                                "and no token; pass --insecure on a network you trust")
-    _check_qick_options(qick_ns, qick_listen, qick_start_ns, insecure)
     cables = _parse_qick_loopback(qick_loopback, qick_ns)
+    _check_qick_options(qick_ns, qick_listen, qick_start_ns, insecure)
     tls =(pathlib.Path(tls_cert).read_bytes(), pathlib.Path(tls_key).read_bytes()) if tls_cert and tls_key else None
 
     prof = load_profile(_resolve_profile_path(profile))

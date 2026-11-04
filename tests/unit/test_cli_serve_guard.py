@@ -94,6 +94,7 @@ def test_serve_refuses_a_qick_loopback_without_the_qick_board():
 
 
 def test_serve_hands_the_qick_test_cables_to_the_chassis(monkeypatch):
+    pytest.importorskip("Pyro4")          # the only test here that gets past the checks to start a board
     seen = {}
 
     class Stop(Exception):

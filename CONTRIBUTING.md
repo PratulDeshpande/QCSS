@@ -13,13 +13,16 @@ under the project's [Apache-2.0 license](LICENSE).
 git clone https://github.com/PratulDeshpande/qcss.git
 cd qcss
 uv sync --group dev                              # Python 3.12 or 3.13: the simulator and the dev tools
-uv sync --extra qibocal --group lab --group dev  # plus the virtual lab: Qibolab, Qibocal, qcss-qibolab
+uv sync --extra qibocal --extra qick --group lab --group dev  # plus the virtual lab and the native QICK face
 uv pip install "qibosoq @ git+https://github.com/qiboteam/qibosoq@2c376278785e6ae8aae1f13d1b0b467e067aaf7d"
+uv pip install "qick==0.2.370"
 ```
 
-The last line is only needed for the Qibosoq board tests: qibosoq has no numpy-2 release on PyPI, and a
-git dependency cannot be declared in the package metadata. Without the lab stack the `virtual_lab`,
-technician and platform tests skip.
+The `uv pip install` lines are only needed for the board tests. qibosoq has no numpy-2 release on PyPI,
+and a git dependency cannot be declared in the package metadata; the `qick` client is installed by hand
+because its `pynq` dependency (for the board's ARM CPU) cannot be resolved in uv's universal lock. Run
+them again after any `uv sync`, which removes packages the lock does not list. Without the lab stack the
+`virtual_lab`, technician and platform tests skip; without Pyro4 and `qick` the QICK face's tests skip.
 
 ## Checks to run before opening a pull request
 
