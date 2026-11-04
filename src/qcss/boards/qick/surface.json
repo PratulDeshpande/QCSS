@@ -1,0 +1,1345 @@
+{
+ "qick_version": "0.2.370",
+ "objects": {
+  "soc": {
+   "adcfreq": [
+    {
+     "name": "f",
+     "default": "<required>"
+    },
+    {
+     "name": "gen_ch",
+     "default": 0
+    },
+    {
+     "name": "ro_ch",
+     "default": 0
+    }
+   ],
+   "arm_ddr4": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    },
+    {
+     "name": "nt",
+     "default": "<required>"
+    },
+    {
+     "name": "force_overwrite",
+     "default": false
+    }
+   ],
+   "arm_mr": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    }
+   ],
+   "calc_fstep": [
+    {
+     "name": "dicts",
+     "default": "<required>"
+    }
+   ],
+   "calc_fstep_int": [
+    {
+     "name": "dict1",
+     "default": "<required>"
+    },
+    {
+     "name": "other_dicts",
+     "default": "<required>"
+    }
+   ],
+   "calc_mixer_freq": [
+    {
+     "name": "gen_ch",
+     "default": "<required>"
+    },
+    {
+     "name": "mixer_freq",
+     "default": "<required>"
+    },
+    {
+     "name": "nqz",
+     "default": "<required>"
+    },
+    {
+     "name": "ro_ch",
+     "default": "<required>"
+    }
+   ],
+   "calc_muxgen_regs": [
+    {
+     "name": "gen_ch",
+     "default": "<required>"
+    },
+    {
+     "name": "freqs",
+     "default": "<required>"
+    },
+    {
+     "name": "gains",
+     "default": "<required>"
+    },
+    {
+     "name": "phases",
+     "default": "<required>"
+    },
+    {
+     "name": "ro_ch",
+     "default": "<required>"
+    },
+    {
+     "name": "absolute_freqs",
+     "default": "<required>"
+    },
+    {
+     "name": "mixer_freq",
+     "default": "<required>"
+    }
+   ],
+   "calc_ro_freq": [
+    {
+     "name": "rocfg",
+     "default": "<required>"
+    },
+    {
+     "name": "ro_pars",
+     "default": "<required>"
+    },
+    {
+     "name": "ro_regs",
+     "default": "<required>"
+    },
+    {
+     "name": "absolute_freqs",
+     "default": "<required>"
+    },
+    {
+     "name": "mixer_freq",
+     "default": "<required>"
+    },
+    {
+     "name": "flip_freq",
+     "default": false
+    }
+   ],
+   "calc_ro_regs": [
+    {
+     "name": "rocfg",
+     "default": "<required>"
+    },
+    {
+     "name": "phase",
+     "default": "<required>"
+    },
+    {
+     "name": "sel",
+     "default": "<required>"
+    }
+   ],
+   "ch_fstep": [
+    {
+     "name": "dict1",
+     "default": "<required>"
+    }
+   ],
+   "check_pfb_collisions": [
+    {
+     "name": "rocfg",
+     "default": "<required>"
+    },
+    {
+     "name": "cfg1",
+     "default": "<required>"
+    },
+    {
+     "name": "cfgs",
+     "default": "<required>"
+    }
+   ],
+   "cleanup_round": [],
+   "clear_ddr4": [
+    {
+     "name": "length",
+     "default": null
+    }
+   ],
+   "clear_tproc_counter": [
+    {
+     "name": "addr",
+     "default": "<required>"
+    }
+   ],
+   "clocks_locked": [],
+   "config_avg": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    },
+    {
+     "name": "address",
+     "default": 0
+    },
+    {
+     "name": "length",
+     "default": 1
+    },
+    {
+     "name": "edge_counting",
+     "default": false
+    },
+    {
+     "name": "high_threshold",
+     "default": 1000
+    },
+    {
+     "name": "low_threshold",
+     "default": 0
+    }
+   ],
+   "config_buf": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    },
+    {
+     "name": "address",
+     "default": 0
+    },
+    {
+     "name": "length",
+     "default": 1
+    }
+   ],
+   "config_clocks": [
+    {
+     "name": "force_init_clks",
+     "default": "<required>"
+    }
+   ],
+   "config_mux_gen": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    },
+    {
+     "name": "tones",
+     "default": "<required>"
+    }
+   ],
+   "config_mux_readout": [
+    {
+     "name": "pfbpath",
+     "default": "<required>"
+    },
+    {
+     "name": "cfgs",
+     "default": "<required>"
+    },
+    {
+     "name": "sel",
+     "default": null
+    }
+   ],
+   "configure_readout": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    },
+    {
+     "name": "ro_regs",
+     "default": "<required>"
+    }
+   ],
+   "cycles2us": [
+    {
+     "name": "cycles",
+     "default": "<required>"
+    },
+    {
+     "name": "gen_ch",
+     "default": null
+    },
+    {
+     "name": "ro_ch",
+     "default": null
+    }
+   ],
+   "deg2int": [
+    {
+     "name": "deg",
+     "default": "<required>"
+    },
+    {
+     "name": "thisch",
+     "default": "<required>"
+    }
+   ],
+   "deg2reg": [
+    {
+     "name": "deg",
+     "default": "<required>"
+    },
+    {
+     "name": "gen_ch",
+     "default": 0
+    },
+    {
+     "name": "ro_ch",
+     "default": null
+    }
+   ],
+   "description": [],
+   "dump_cfg": [],
+   "enable_buf": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    },
+    {
+     "name": "enable_avg",
+     "default": true
+    },
+    {
+     "name": "enable_buf",
+     "default": true
+    }
+   ],
+   "freeze_adc_cals": [
+    {
+     "name": "blocknames",
+     "default": "<required>"
+    }
+   ],
+   "freq2int": [
+    {
+     "name": "f",
+     "default": "<required>"
+    },
+    {
+     "name": "thisch",
+     "default": "<required>"
+    },
+    {
+     "name": "otherch",
+     "default": null
+    }
+   ],
+   "freq2reg": [
+    {
+     "name": "f",
+     "default": "<required>"
+    },
+    {
+     "name": "gen_ch",
+     "default": 0
+    },
+    {
+     "name": "ro_ch",
+     "default": null
+    }
+   ],
+   "freq2reg_adc": [
+    {
+     "name": "f",
+     "default": "<required>"
+    },
+    {
+     "name": "ro_ch",
+     "default": 0
+    },
+    {
+     "name": "gen_ch",
+     "default": null
+    }
+   ],
+   "get_accumulated": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    },
+    {
+     "name": "address",
+     "default": 0
+    },
+    {
+     "name": "length",
+     "default": null
+    }
+   ],
+   "get_adc_attenuator": [
+    {
+     "name": "blockname",
+     "default": "<required>"
+    }
+   ],
+   "get_cfg": [],
+   "get_ddr4": [
+    {
+     "name": "nt",
+     "default": "<required>"
+    },
+    {
+     "name": "start",
+     "default": null
+    }
+   ],
+   "get_decimated": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    },
+    {
+     "name": "address",
+     "default": 0
+    },
+    {
+     "name": "length",
+     "default": null
+    }
+   ],
+   "get_maxv": [
+    {
+     "name": "gen_ch",
+     "default": "<required>"
+    }
+   ],
+   "get_mr": [
+    {
+     "name": "start",
+     "default": null
+    }
+   ],
+   "get_sample_rates": [],
+   "get_tproc_counter": [
+    {
+     "name": "addr",
+     "default": "<required>"
+    }
+   ],
+   "int2deg": [
+    {
+     "name": "r",
+     "default": "<required>"
+    },
+    {
+     "name": "thisch",
+     "default": "<required>"
+    }
+   ],
+   "int2freq": [
+    {
+     "name": "r",
+     "default": "<required>"
+    },
+    {
+     "name": "thisch",
+     "default": "<required>"
+    }
+   ],
+   "load_bin_program": [
+    {
+     "name": "binprog",
+     "default": "<required>"
+    },
+    {
+     "name": "load_mem",
+     "default": true
+    }
+   ],
+   "load_envelope": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    },
+    {
+     "name": "data",
+     "default": "<required>"
+    },
+    {
+     "name": "addr",
+     "default": "<required>"
+    }
+   ],
+   "load_mem": [
+    {
+     "name": "data",
+     "default": "<required>"
+    },
+    {
+     "name": "mem_sel",
+     "default": "dmem"
+    },
+    {
+     "name": "addr",
+     "default": 0
+    }
+   ],
+   "load_weights": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    },
+    {
+     "name": "data",
+     "default": "<required>"
+    },
+    {
+     "name": "addr",
+     "default": 0
+    }
+   ],
+   "map_signal_paths": [
+    {
+     "name": "no_tproc",
+     "default": "<required>"
+    }
+   ],
+   "poll_data": [
+    {
+     "name": "totaltime",
+     "default": 0.1
+    },
+    {
+     "name": "timeout",
+     "default": null
+    }
+   ],
+   "prepare_round": [],
+   "read_mem": [
+    {
+     "name": "length",
+     "default": "<required>"
+    },
+    {
+     "name": "mem_sel",
+     "default": "dmem"
+    },
+    {
+     "name": "addr",
+     "default": 0
+    }
+   ],
+   "reg2deg": [
+    {
+     "name": "r",
+     "default": "<required>"
+    },
+    {
+     "name": "gen_ch",
+     "default": 0
+    },
+    {
+     "name": "ro_ch",
+     "default": null
+    }
+   ],
+   "reg2freq": [
+    {
+     "name": "r",
+     "default": "<required>"
+    },
+    {
+     "name": "gen_ch",
+     "default": 0
+    }
+   ],
+   "reg2freq_adc": [
+    {
+     "name": "r",
+     "default": "<required>"
+    },
+    {
+     "name": "ro_ch",
+     "default": 0
+    }
+   ],
+   "reload_mem": [],
+   "reset_gens": [],
+   "round_sample_rate": [
+    {
+     "name": "tiletype",
+     "default": "<required>"
+    },
+    {
+     "name": "tile",
+     "default": "<required>"
+    },
+    {
+     "name": "fs_target",
+     "default": "<required>"
+    }
+   ],
+   "roundfreq": [
+    {
+     "name": "f",
+     "default": "<required>"
+    },
+    {
+     "name": "dicts",
+     "default": "<required>"
+    }
+   ],
+   "set_adc_attenuator": [
+    {
+     "name": "blockname",
+     "default": "<required>"
+    },
+    {
+     "name": "attenuation",
+     "default": "<required>"
+    }
+   ],
+   "set_all_clks": [],
+   "set_iq": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    },
+    {
+     "name": "f",
+     "default": "<required>"
+    },
+    {
+     "name": "i",
+     "default": "<required>"
+    },
+    {
+     "name": "q",
+     "default": "<required>"
+    },
+    {
+     "name": "ro_ch",
+     "default": null
+    },
+    {
+     "name": "phase_reset",
+     "default": true
+    }
+   ],
+   "set_mixer_freq": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    },
+    {
+     "name": "f",
+     "default": "<required>"
+    },
+    {
+     "name": "ro_ch",
+     "default": null
+    },
+    {
+     "name": "phase_reset",
+     "default": true
+    }
+   ],
+   "set_nyquist": [
+    {
+     "name": "ch",
+     "default": "<required>"
+    },
+    {
+     "name": "nqz",
+     "default": "<required>"
+    },
+    {
+     "name": "force",
+     "default": false
+    }
+   ],
+   "start_readout": [
+    {
+     "name": "total_shots",
+     "default": "<required>"
+    },
+    {
+     "name": "counter_addr",
+     "default": 1
+    },
+    {
+     "name": "ch_list",
+     "default": null
+    },
+    {
+     "name": "reads_per_shot",
+     "default": 1
+    },
+    {
+     "name": "stride",
+     "default": null
+    }
+   ],
+   "start_src": [
+    {
+     "name": "src",
+     "default": "<required>"
+    }
+   ],
+   "start_tproc": [],
+   "stop_tproc": [
+    {
+     "name": "lazy",
+     "default": false
+    }
+   ],
+   "streamer": [],
+   "tproc": [],
+   "tt_arm": [
+    {
+     "name": "blk",
+     "default": "<required>"
+    }
+   ],
+   "tt_config": [
+    {
+     "name": "blk",
+     "default": "<required>"
+    },
+    {
+     "name": "threshold",
+     "default": "<required>"
+    },
+    {
+     "name": "wr_smp",
+     "default": 32
+    },
+    {
+     "name": "filt",
+     "default": false
+    },
+    {
+     "name": "slope",
+     "default": false
+    },
+    {
+     "name": "invert",
+     "default": false
+    },
+    {
+     "name": "interp",
+     "default": 0
+    },
+    {
+     "name": "deadtime",
+     "default": 5
+    }
+   ],
+   "tt_disarm": [
+    {
+     "name": "blk",
+     "default": "<required>"
+    }
+   ],
+   "tt_readmem": [
+    {
+     "name": "blk",
+     "default": "<required>"
+    },
+    {
+     "name": "mem",
+     "default": "<required>"
+    }
+   ],
+   "tt_reset": [
+    {
+     "name": "blk",
+     "default": "<required>"
+    }
+   ],
+   "unfreeze_adc_cals": [
+    {
+     "name": "blocknames",
+     "default": "<required>"
+    }
+   ],
+   "us2cycles": [
+    {
+     "name": "us",
+     "default": "<required>"
+    },
+    {
+     "name": "gen_ch",
+     "default": null
+    },
+    {
+     "name": "ro_ch",
+     "default": null
+    },
+    {
+     "name": "as_float",
+     "default": false
+    }
+   ],
+   "valid_sample_rates": [
+    {
+     "name": "tiletype",
+     "default": "<required>"
+    },
+    {
+     "name": "tile",
+     "default": "<required>"
+    }
+   ]
+  },
+  "tproc_v1": {
+   "configure": [
+    {
+     "name": "mem",
+     "default": "<required>"
+    },
+    {
+     "name": "axi_dma",
+     "default": "<required>"
+    }
+   ],
+   "configure_connections": [
+    {
+     "name": "soc",
+     "default": "<required>"
+    }
+   ],
+   "load_bin_program": [
+    {
+     "name": "binprog",
+     "default": "<required>"
+    },
+    {
+     "name": "load_mem",
+     "default": "<required>"
+    }
+   ],
+   "load_dmem": [
+    {
+     "name": "buff_in",
+     "default": "<required>"
+    },
+    {
+     "name": "addr",
+     "default": 0
+    }
+   ],
+   "port2ch": [
+    {
+     "name": "portname",
+     "default": "<required>"
+    }
+   ],
+   "read_dmem": [
+    {
+     "name": "addr",
+     "default": 0
+    },
+    {
+     "name": "length",
+     "default": 100
+    }
+   ],
+   "reload_program": [],
+   "reset": [],
+   "single_read": [
+    {
+     "name": "addr",
+     "default": "<required>"
+    }
+   ],
+   "single_write": [
+    {
+     "name": "addr",
+     "default": 0
+    },
+    {
+     "name": "data",
+     "default": 0
+    }
+   ],
+   "start": [],
+   "start_src": [
+    {
+     "name": "src",
+     "default": "<required>"
+    }
+   ],
+   "trace_clocks": [
+    {
+     "name": "soc",
+     "default": "<required>"
+    }
+   ]
+  },
+  "tproc_v2": {
+   "clr_axi_flg": [],
+   "configure": [
+    {
+     "name": "axi_dma",
+     "default": "<required>"
+    }
+   ],
+   "configure_connections": [
+    {
+     "name": "soc",
+     "default": "<required>"
+    }
+   ],
+   "core_start": [],
+   "core_step": [],
+   "core_stop": [],
+   "get_start_src": [],
+   "info": [],
+   "load_bin_program": [
+    {
+     "name": "binprog",
+     "default": "<required>"
+    },
+    {
+     "name": "load_mem",
+     "default": "<required>"
+    }
+   ],
+   "load_mem": [
+    {
+     "name": "mem_sel",
+     "default": "<required>"
+    },
+    {
+     "name": "buff_in",
+     "default": "<required>"
+    },
+    {
+     "name": "addr",
+     "default": 0
+    },
+    {
+     "name": "check",
+     "default": true
+    }
+   ],
+   "port2ch": [
+    {
+     "name": "portname",
+     "default": "<required>"
+    }
+   ],
+   "print_axi_regs": [],
+   "print_debug": [],
+   "print_status": [],
+   "proc_freeze": [],
+   "proc_pause": [],
+   "proc_step": [],
+   "read_mem": [
+    {
+     "name": "mem_sel",
+     "default": "<required>"
+    },
+    {
+     "name": "length",
+     "default": "<required>"
+    },
+    {
+     "name": "addr",
+     "default": 0
+    },
+    {
+     "name": "truncate",
+     "default": true
+    }
+   ],
+   "reload_mem": [],
+   "reset": [],
+   "run": [],
+   "set_axi_flg": [],
+   "set_lfsr_cfg": [
+    {
+     "name": "mode",
+     "default": "<required>"
+    },
+    {
+     "name": "core",
+     "default": 0
+    }
+   ],
+   "single_read": [
+    {
+     "name": "mem_sel",
+     "default": "<required>"
+    },
+    {
+     "name": "addr",
+     "default": "<required>"
+    }
+   ],
+   "single_write": [
+    {
+     "name": "mem_sel",
+     "default": "<required>"
+    },
+    {
+     "name": "addr",
+     "default": 0
+    },
+    {
+     "name": "data",
+     "default": 0
+    }
+   ],
+   "start": [],
+   "start_src": [
+    {
+     "name": "src",
+     "default": "<required>"
+    }
+   ],
+   "stop": [],
+   "time_reset": [],
+   "time_step": [],
+   "time_update": [],
+   "trace_clocks": [
+    {
+     "name": "soc",
+     "default": "<required>"
+    }
+   ]
+  },
+  "streamer": {
+   "data_available": [],
+   "readout_running": [],
+   "start_worker": [],
+   "stop_readout": []
+  }
+ },
+ "client_calls": [
+  "cleanup_round",
+  "clear_tproc_counter",
+  "config_avg",
+  "config_buf",
+  "config_mux_gen",
+  "config_mux_readout",
+  "configure_readout",
+  "enable_buf",
+  "get_accumulated",
+  "get_decimated",
+  "get_tproc_counter",
+  "load_bin_program",
+  "load_envelope",
+  "load_weights",
+  "poll_data",
+  "prepare_round",
+  "reload_mem",
+  "set_mixer_freq",
+  "set_nyquist",
+  "start_readout",
+  "start_src",
+  "start_tproc",
+  "stop_tproc"
+ ],
+ "source_lines": {
+  "adcfreq": [
+   "qick_asm.py",
+   511
+  ],
+  "arm_ddr4": [
+   "qick.py",
+   1771
+  ],
+  "arm_mr": [
+   "qick.py",
+   1791
+  ],
+  "calc_fstep": [
+   "qick_asm.py",
+   327
+  ],
+  "calc_fstep_int": [
+   "qick_asm.py",
+   277
+  ],
+  "calc_mixer_freq": [
+   "qick_asm.py",
+   711
+  ],
+  "calc_muxgen_regs": [
+   "qick_asm.py",
+   744
+  ],
+  "calc_ro_freq": [
+   "qick_asm.py",
+   814
+  ],
+  "calc_ro_regs": [
+   "qick_asm.py",
+   792
+  ],
+  "ch_fstep": [
+   "qick_asm.py",
+   312
+  ],
+  "check_pfb_collisions": [
+   "qick_asm.py",
+   877
+  ],
+  "cleanup_round": [
+   "qick.py",
+   1734
+  ],
+  "clear_ddr4": [
+   "qick.py",
+   1742
+  ],
+  "clear_tproc_counter": [
+   "qick.py",
+   1571
+  ],
+  "clocks_locked": [
+   "qick.py",
+   1004
+  ],
+  "config_avg": [
+   "qick.py",
+   1199
+  ],
+  "config_buf": [
+   "qick.py",
+   1221
+  ],
+  "config_clocks": [
+   "qick.py",
+   986
+  ],
+  "config_mux_gen": [
+   "qick.py",
+   1392
+  ],
+  "config_mux_readout": [
+   "qick.py",
+   1406
+  ],
+  "configure_readout": [
+   "qick.py",
+   1185
+  ],
+  "cycles2us": [
+   "qick_asm.py",
+   646
+  ],
+  "deg2int": [
+   "qick_asm.py",
+   566
+  ],
+  "deg2reg": [
+   "qick_asm.py",
+   602
+  ],
+  "description": [
+   "qick_asm.py",
+   92
+  ],
+  "dump_cfg": [
+   "qick_asm.py",
+   262
+  ],
+  "enable_buf": [
+   "qick.py",
+   1236
+  ],
+  "freeze_adc_cals": [
+   "qick.py",
+   1360
+  ],
+  "freq2int": [
+   "qick_asm.py",
+   372
+  ],
+  "freq2reg": [
+   "qick_asm.py",
+   416
+  ],
+  "freq2reg_adc": [
+   "qick_asm.py",
+   448
+  ],
+  "get_accumulated": [
+   "qick.py",
+   1163
+  ],
+  "get_adc_attenuator": [
+   "qick.py",
+   1340
+  ],
+  "get_cfg": [
+   "qick_asm.py",
+   247
+  ],
+  "get_ddr4": [
+   "qick.py",
+   1754
+  ],
+  "get_decimated": [
+   "qick.py",
+   1142
+  ],
+  "get_maxv": [
+   "qick_asm.py",
+   926
+  ],
+  "get_mr": [
+   "qick.py",
+   1806
+  ],
+  "get_sample_rates": [
+   "qick.py",
+   1088
+  ],
+  "get_tproc_counter": [
+   "qick.py",
+   1589
+  ],
+  "int2deg": [
+   "qick_asm.py",
+   584
+  ],
+  "int2freq": [
+   "qick_asm.py",
+   397
+  ],
+  "load_bin_program": [
+   "qick.py",
+   1452
+  ],
+  "load_envelope": [
+   "qick.py",
+   1267
+  ],
+  "load_mem": [
+   "qick.py",
+   1478
+  ],
+  "load_weights": [
+   "qick.py",
+   1251
+  ],
+  "map_signal_paths": [
+   "qick.py",
+   878
+  ],
+  "poll_data": [
+   "qick.py",
+   1690
+  ],
+  "prepare_round": [
+   "qick.py",
+   1726
+  ],
+  "read_mem": [
+   "qick.py",
+   1503
+  ],
+  "reg2deg": [
+   "qick_asm.py",
+   624
+  ],
+  "reg2freq": [
+   "qick_asm.py",
+   473
+  ],
+  "reg2freq_adc": [
+   "qick_asm.py",
+   492
+  ],
+  "reload_mem": [
+   "qick.py",
+   1472
+  ],
+  "reset_gens": [
+   "qick.py",
+   1612
+  ],
+  "round_sample_rate": [
+   "qick.py",
+   1120
+  ],
+  "roundfreq": [
+   "qick_asm.py",
+   350
+  ],
+  "set_adc_attenuator": [
+   "qick.py",
+   1317
+  ],
+  "set_all_clks": [
+   "qick.py",
+   1016
+  ],
+  "set_iq": [
+   "qick.py",
+   1429
+  ],
+  "set_mixer_freq": [
+   "qick.py",
+   1295
+  ],
+  "set_nyquist": [
+   "qick.py",
+   1283
+  ],
+  "start_readout": [
+   "qick.py",
+   1636
+  ],
+  "start_src": [
+   "qick.py",
+   1531
+  ],
+  "start_tproc": [
+   "qick.py",
+   1540
+  ],
+  "stop_tproc": [
+   "qick.py",
+   1552
+  ],
+  "streamer": [
+   "qick.py",
+   859
+  ],
+  "tproc": [
+   "qick.py",
+   855
+  ],
+  "tt_arm": [
+   "qick.py",
+   1819
+  ],
+  "tt_config": [
+   "qick.py",
+   1864
+  ],
+  "tt_disarm": [
+   "qick.py",
+   1830
+  ],
+  "tt_readmem": [
+   "qick.py",
+   1840
+  ],
+  "tt_reset": [
+   "qick.py",
+   1853
+  ],
+  "unfreeze_adc_cals": [
+   "qick.py",
+   1376
+  ],
+  "us2cycles": [
+   "qick_asm.py",
+   676
+  ],
+  "valid_sample_rates": [
+   "qick.py",
+   1100
+  ]
+ }
+}

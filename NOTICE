@@ -2,3 +2,10 @@ QCSS: Quantum Control Stack Simulator
 Copyright 2026 Pratul Deshpande
 
 This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+The QICK firmware descriptions in src/qcss/boards/qick/firmware.py follow the structure of:
+- the QICK testbench configuration (firmware/testbench/qick_testbench/soccfg.json) of
+  QICK: Quantum Instrumentation Control Kit, https://github.com/openquantumhardware/qick,
+  Copyright (c) Open Quantum Hardware, MIT License;
+- the qibosoq test configurations (tests/qick_config_*.json), https://github.com/qiboteam/qibosoq,
+  Apache License, Version 2.0.

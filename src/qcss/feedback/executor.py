@@ -21,6 +21,7 @@ from qcss.ir.frames import TWO_PI, FrameTracker
 from qcss.ir.program import Acquire, Branch, ChannelBinding, ChannelKind, FrameOp, Play, Program
 from qcss.ir.waveforms import WaveformLibrary
 from qcss.physics.lifter import GateEvent, annotate_clifford, lift_1q, lift_multi, shift_lift_start
+from qcss.readout.model import ReadoutDrive, tone_drive
 from qcss.signal.port_renderer import DriveChain, FluxChain
 from qcss.timing.des import DES, Prio
 
@@ -236,6 +237,8 @@ class ShotExecutor:
         res = ShotResult()
         regs: dict[int, int] = {}
         ready_at: dict[int, tuple[int, str]] = {}
+        ro_tone: dict[str, Play] = {}                       # readout channel -> the probe tone playing on it
+        tone_start: dict[str, int] = {}
         segs: list[Segment] = []
         # When each qubit's last lifted gate ends, to refuse concurrent gates on a shared qubit. Plays arrive in
         # time order (the DES), so one end time per qubit suffices. Only the planning dry run checks: it runs
@@ -256,6 +259,9 @@ class ShotExecutor:
 
         def do_play(op: Play, t: int) -> None:
             b = c.bindings[op.channel_id]
+            if b.kind is ChannelKind.READOUT:                  # a probe tone the program plays itself
+                ro_tone[op.channel_id] = op
+                tone_start[op.channel_id] = t
             advance(t)
             seg = self._render(op, b, t, S, tr)
             res.timeline.append((t, f"play {op.channel_id}:{op.waveform_id}"))
@@ -308,10 +314,15 @@ class ShotExecutor:
                 des.schedule_at(t_ready, Prio.ACQ_COMPLETE, do_acq_end, op, 0, 0, 0j, None, t_ready)
                 return
             level = c.engine.measure(q, rng=rng) if q is not None else 0
-            n = op.integration // c.adc_ticks_per_sample[op.channel_id]
+            per = c.adc_ticks_per_sample[op.channel_id]
+            n = op.integration // per
             ro = c.readout[q_dev]
+            tone = ro_tone.get(op.channel_id)
+            drive: ReadoutDrive | None = None if tone is None else tone_drive(
+                tone.amplitude, (t - tone_start[op.channel_id]) // per,
+                len(c.wf_lib.get(b.generator_id, tone.waveform_id)), tone.phase_offset)
             out = ro.acquire(np.array([level]), n, c.t1_ns.get(q_dev, np.inf), ro_rng,
-                             c.weights.get(op.weights_id), want_trace=op.mode == "raw_trace")
+                             c.weights.get(op.weights_id), want_trace=op.mode == "raw_trace", drive=drive)
             des.schedule_at(t_ready, Prio.ACQ_COMPLETE, do_acq_end, op, level, int(out.labels[0]),
                             complex(out.iq[0]), None if out.traces is None else out.traces[0], t_ready)
 

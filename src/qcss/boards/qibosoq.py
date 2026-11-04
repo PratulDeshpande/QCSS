@@ -29,6 +29,7 @@ from typing import Any
 import numpy as np
 
 from qcss.config.profile import HardwareProfile
+from qcss.core.errors import QCSSError
 from qcss.core.ndarray import from_proto, to_proto
 from qcss.ir.program import ChannelBinding, ChannelKind
 from qcss.v1 import job_pb2, result_pb2
@@ -37,6 +38,13 @@ EXECUTE_PULSE_SEQUENCE, EXECUTE_PULSE_SEQUENCE_RAW, EXECUTE_SWEEPS = 1, 2, 3
 FABRIC_SAMPLES = 16             # one full-speed DAC fabric cycle
 _SWEEP_FIELDS = {"freq": "frequency", "gain": "amplitude", "phase": "relative_phase", "t": "start_delay",
                  "duration": "duration"}
+MAX_REQUEST_BYTES = 16 << 20    # the lab link's gRPC message cap: neither face takes a larger request
+MAX_PROGRAM_ELEMENTS = 1 << 18  # sweep points x sequence elements: ~50 B each, so a job stays under 16 MiB
+REQUEST_TIMEOUT_S = 30.0        # a client sends its whole request at once; one that stalls is dropped
+
+
+class BoardResourcesExceeded(QCSSError):
+    """A request larger than the board can hold. On the wire only the board's own words are sent."""
 
 
 @dataclass(frozen=True)
@@ -127,6 +135,11 @@ def request_to_job(data: Mapping[str, Any], wiring: BoardWiring, profile: Hardwa
     keys = {k: f"r{n}" for n, k in enumerate(readouts)}
 
     sweepers = list(data.get("sweepers") or [])
+    shape = tuple(int(sw["expts"]) for sw in sweepers)
+    if any(n < 1 for n in shape):
+        raise ValueError(f"sweep of {shape} points: a sweep needs at least one point")
+    if math.prod(shape) * max(1, len(sequence)) > MAX_PROGRAM_ELEMENTS:   # checked before anything is built
+        raise BoardResourcesExceeded(f"{math.prod(shape)} sweep points x {len(sequence)} elements")
     axes = []
     for sw in sweepers:
         vals = [np.linspace(a, b, int(sw["expts"])) for a, b in zip(sw["starts"], sw["stops"], strict=True)]
@@ -136,7 +149,6 @@ def request_to_job(data: Mapping[str, Any], wiring: BoardWiring, profile: Hardwa
             if p not in _SWEEP_FIELDS:
                 raise ValueError(f"sweep parameter '{p}' is not supported by this board")
         axes.append((sw, vals))
-    shape = tuple(int(sw["expts"]) for sw in sweepers)
     windows: dict[str, int] = {}
     wf: dict[bytes, str] = {}
 
@@ -205,7 +217,6 @@ def board_reply(chunks: Iterable[result_pb2.ResultChunk], bj: BoardJob) -> dict[
 
 
 def _board_error(exc: Exception) -> str:
-    from qcss.core.errors import QCSSError
     if isinstance(exc, QCSSError) and not isinstance(exc, ValueError):
         return "RuntimeError: the sequence exceeds the board's resources"
     return f"{type(exc).__name__ if type(exc).__module__ == 'builtins' else 'RuntimeError'}: {exc}"
@@ -231,8 +242,10 @@ def _reset(writer: asyncio.StreamWriter) -> None:
 class QibosoqBoard:
     """The board's TCP server. One request per connection, as the qibosoq server handles them."""
 
-    def __init__(self, jobs: Any, wiring: BoardWiring, profile: HardwareProfile, faults: Any = None) -> None:
+    def __init__(self, jobs: Any, wiring: BoardWiring, profile: HardwareProfile, faults: Any = None,
+                 request_timeout_s: float = REQUEST_TIMEOUT_S) -> None:
         self._jobs, self._wiring, self._profile, self._faults = jobs, wiring, profile, faults
+        self._timeout = request_timeout_s
         self._server: asyncio.base_events.Server | None = None
 
     async def start(self, address: str) -> None:
@@ -249,10 +262,16 @@ class QibosoqBoard:
             if self._faults is not None and not await self._faults.admit(uploads=True):
                 _reset(writer)                               # the board drops the connection, as a reboot does
                 return
-            count = int.from_bytes(await reader.readexactly(4), "big")
-            data = json.loads(await reader.readexactly(count))
             try:
-                reply: Any = await self._execute(data)
+                async with asyncio.timeout(self._timeout):    # bounds the read only, never the run
+                    count = int.from_bytes(await reader.readexactly(4), "big")
+                    body = await reader.readexactly(count) if count <= MAX_REQUEST_BYTES else None
+            except TimeoutError:
+                return                                       # a stalled client is dropped
+            try:
+                if body is None:                             # refused unread: never buffer an unbounded body
+                    raise BoardResourcesExceeded(f"a request of {count} bytes")
+                reply: Any = await self._execute(json.loads(body))
             except Exception as exc:                         # noqa: BLE001 - a board answers with the error
                 reply = _board_error(exc)                        # the board's words, not the simulator's
             writer.write(json.dumps(reply).encode("utf-8"))

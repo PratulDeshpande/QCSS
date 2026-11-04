@@ -37,7 +37,7 @@ from qcss.device.state import DeviceState
 from qcss.feedback.executor import ExecContext, QubitModel, ShotExecutor, UnliftableError, shot_duration
 from qcss.feedback.latency import FeedbackLatencyResolver, readout_tof_ticks
 from qcss.ir.compiler import build_bindings, compile_job, expand_sweeps
-from qcss.ir.program import Acquire, Branch, ChannelKind, FrameOp, Program
+from qcss.ir.program import Acquire, Branch, ChannelKind, FrameOp, Play, Program
 from qcss.ir.validator import Validator, frame_if_from_bindings
 from qcss.ir.waveforms import WaveformLibrary
 from qcss.physics.lindblad_t2 import LindbladT2, QutritParams
@@ -46,7 +46,7 @@ from qcss.physics.statevector_t1b import StatevectorT1b
 from qcss.physics.stim_t1a import StimT1a
 from qcss.physics.surrogate_t0 import SurrogateT0
 from qcss.physics.transmon import TWO_PI, f01_ghz, nbar_from_excited_population, nbar_from_temperature
-from qcss.readout.model import PhysicalReadout, SurrogateReadout
+from qcss.readout.model import PhysicalReadout, SurrogateReadout, tone_drive
 from qcss.runtime.calibration_store import CalibrationEpochError, CalibrationStore
 
 __all__ = ["CalibrationEpochError", "JobInfo", "SimulationContext", "TierRoutingError",
@@ -609,9 +609,17 @@ class SimulationContext:
                 ends = base_tick + np.arange(n_shots) * period + dur
                 for op in sorted((o for o in prog.ops if isinstance(o, Acquire)), key=lambda o: o.path):
                     q_dev = ctx.bindings[op.channel_id].qubits[0]
-                    n = op.integration // ctx.adc_ticks_per_sample[op.channel_id]
+                    per = ctx.adc_ticks_per_sample[op.channel_id]
+                    n = op.integration // per
+                    tone = max((o for o in prog.ops if isinstance(o, Play) and o.channel_id == op.channel_id
+                                and o.start <= op.start), key=lambda o: o.start, default=None)
+                    drive = None if tone is None else tone_drive(
+                        tone.amplitude, (op.start - tone.start) // per,
+                        len(ctx.wf_lib.get(ctx.bindings[op.channel_id].generator_id, tone.waveform_id)),
+                        tone.phase_offset)
                     r = ctx.readout[q_dev].acquire(levels[ctx.qmap[q_dev]], n, ctx.t1_ns[q_dev], ro_rng,
-                                                   ctx.weights.get(op.weights_id), op.mode == "raw_trace")
+                                                   ctx.weights.get(op.weights_id), op.mode == "raw_trace",
+                                                   drive=drive)
                     for k in range(n_shots):
                         add(op.result_key or op.channel_id, int(r.labels[k]), complex(r.iq[k]), int(ends[k]),
                             None if r.traces is None else r.traces[k])

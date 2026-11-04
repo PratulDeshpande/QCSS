@@ -23,6 +23,31 @@ TWO_PI = 2 * np.pi
 
 
 @dataclass(frozen=True)
+class ReadoutDrive:
+    """The probe tone a board played itself (QICK): the hardware view of the ADC window.
+
+    ``scale`` multiplies the drive that gives the resonator its nominal photon number; the window starts
+    ``offset_samples`` after the tone began (negative: before), and the tone lasts ``drive_samples``.
+    The window is summed as captured, with no matched filter. ``phase_rad`` is the tone's phase: it turns
+    what comes back, not the noise.
+    """
+    scale: float
+    offset_samples: int
+    drive_samples: int
+    phase_rad: float = 0.0
+
+
+# The probe amplitude (fraction of full scale) that gives a resonator its nominal photon number
+# (ResonatorSpec.readout_photons); photons grow as the square of the amplitude. Not from a datasheet.
+NOMINAL_TONE_AMPLITUDE = 0.5
+
+
+def tone_drive(amplitude: float, offset_samples: int, drive_samples: int, phase_rad: float = 0.0) -> ReadoutDrive:
+    """The ReadoutDrive of a probe tone played at ``amplitude`` (fraction of full scale) and ``phase_rad``."""
+    return ReadoutDrive(amplitude / NOMINAL_TONE_AMPLITUDE, int(offset_samples), int(drive_samples), float(phase_rad))
+
+
+@dataclass(frozen=True)
 class AcquireResult:
     labels: np.ndarray            # uint8, one per shot
     iq: np.ndarray                # complex, one integrated point per shot
@@ -55,6 +80,7 @@ class PhysicalReadout:
                         if os_threshold is not None else None)
         self._bases: dict[int, np.ndarray] = {}
         self._cals: dict[int, tuple[np.ndarray, object]] = {}
+        self._driven: dict[tuple[int, int, int], np.ndarray] = {}
 
     def _base(self, n: int) -> np.ndarray:
         if n not in self._bases:
@@ -98,17 +124,49 @@ class PhysicalReadout:
         return w, disc
 
     def acquire(self, levels: np.ndarray, n: int, t1_ns: float, rng: np.random.Generator,
-                weights: np.ndarray | None = None, want_trace: bool = False) -> AcquireResult:
+                weights: np.ndarray | None = None, want_trace: bool = False,
+                drive: ReadoutDrive | None = None) -> AcquireResult:
         levels = np.asarray(levels, dtype=np.intp)
+        if drive is not None:
+            return self._acquire_driven(levels, n, t1_ns, rng, drive, want_trace)
         base = self._base(n)
-        drive = np.full(n, self.amp, dtype=np.complex128)
-        traces = self.ro.traces(levels, drive, t1_ns, rng, base=base)
+        tone = np.full(n, self.amp, dtype=np.complex128)
+        traces = self.ro.traces(levels, tone, t1_ns, rng, base=base)
         w_auto, disc_auto = self._calibration(n)
         w = w_auto if weights is None else np.asarray(weights, dtype=np.complex128)
         z = self._integrate(self._window(traces, n), w)
         disc = self.os_disc if self.os_disc is not None else disc_auto
         labels = disc.classify(z).astype(np.uint8)                  # type: ignore[union-attr]
         return AcquireResult(labels, z, traces if want_trace else None)
+
+    def _acquire_driven(self, levels: np.ndarray, n: int, t1_ns: float, rng: np.random.Generator,
+                        drive: ReadoutDrive, want_trace: bool) -> AcquireResult:
+        pre = max(0, -drive.offset_samples)              # the record starts this long before the tone
+        start = drive.offset_samples + pre
+        m = max(1, start + n - self.tof_samples)         # drive samples the record needs to cover the window
+        key = (m, pre, drive.drive_samples)
+        if key not in self._driven:                      # unit-amplitude mean fields: the model is linear
+            d = np.zeros(m, dtype=np.complex128)
+            d[pre:pre + drive.drive_samples] = self.amp
+            self._driven[key] = np.stack([self.ro.mean_field(lv, d) for lv in range(3)])
+        c = drive.scale * np.exp(1j * drive.phase_rad)          # the model is linear in the drive
+        base = self._driven[key] * c
+        d = np.zeros(m, dtype=np.complex128)
+        d[pre:pre + drive.drive_samples] = self.amp * c
+        win = self.ro.traces(levels, d, t1_ns, rng, base=base)[:, start:start + n]
+        z = win.sum(axis=1) * self.dt
+        if self.convention == "mean":
+            z = z / n
+        if self.os_disc is not None:
+            disc: object = self.os_disc
+        else:                                            # the noiseless levels 0 and 1, split halfway
+            rec = np.zeros((2, m + self.tof_samples), dtype=np.complex128)
+            rec[:, self.tof_samples:] = -d + np.sqrt(self.ro.p.kappa_rad_ns) * base[:2]
+            z01 = rec[:, start:start + n].sum(axis=1) * self.dt
+            rot = float(np.angle(z01[1] - z01[0]))
+            disc = BinaryDiscriminator(float(np.real((z01[0] + z01[1]) / 2 * np.exp(-1j * rot))), rot)
+        labels = disc.classify(z).astype(np.uint8)       # type: ignore[attr-defined]
+        return AcquireResult(labels, z, win if want_trace else None)
 
 
 class SurrogateReadout:
@@ -148,7 +206,10 @@ class SurrogateReadout:
         return PhenomenologicalReadout(conf, mu, max(spread, 1e-12))
 
     def acquire(self, levels: np.ndarray, n: int, t1_ns: float, rng: np.random.Generator,
-                weights: np.ndarray | None = None, want_trace: bool = False) -> AcquireResult:
+                weights: np.ndarray | None = None, want_trace: bool = False,
+                drive: ReadoutDrive | None = None) -> AcquireResult:
+        if drive is not None and self.physical is not None:     # a board-played tone: the window as captured
+            return self.physical.acquire(levels, n, t1_ns, rng, weights, want_trace, drive=drive)
         t1_key = float(min(t1_ns, 1e18))
         if self.physical is not None:
             t1_key = float(f"{t1_key:.3g}")                        # drifted T1s share a calibration

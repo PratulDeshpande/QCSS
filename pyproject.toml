@@ -44,6 +44,11 @@ adapters = ["qcodes>=0.61", "pyvisa>=1.16", "pyvisa-sim>=0.7"]
 # exactly because its Controller base class lives in the private qibolab._core package.
 qibolab  = ["qibolab==0.2.17", "qibo>=0.3,<0.4"]
 qibocal  = ["qibocal==0.2.6", "qibolab==0.2.17", "qibo>=0.3,<0.4"]
+# The native QICK face: a QickSoc stand-in served over Pyro4. The face never imports qick itself. The qick
+# client (what users run, and what the face's tests drive) is a manual install like qibosoq, pinned to
+# 0.2.370, the version qibosoq 0.1.5 pins and the firmware description is written for. qick's pynq
+# dependency, for the board's ARM CPU, has a git-only requirement that uv's universal lock cannot resolve.
+qick     = ["Pyro4>=4.82,<5", "psutil>=5.9"]
 
 
 [dependency-groups]

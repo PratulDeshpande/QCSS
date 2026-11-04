@@ -1579,6 +1579,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pyro4"
+version = "4.82"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "serpent" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2e/0b/e1066a2ba154a1fd6ade41b35d38482fc399feb90fe4768ce8d6d3eb368c/Pyro4-4.82.tar.gz", hash = "sha256:511f5b0804e92dd77dc33adf9c947787e3f9e9c5a96b12162f0557a7c4ce21fb", size = 516110, upload-time = "2021-12-25T01:45:34.312Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/70/e3/8c4e0d24b46fbf02e6b2dc2da5d18f0c73cfd343a1fb01ae64c788c20e56/Pyro4-4.82-py2.py3-none-any.whl", hash = "sha256:bbf5d7413e616d3e1978a05d7caca62eec59692d2dab75dd22a4426ef9b8a691", size = 89999, upload-time = "2021-12-25T01:45:31.066Z" },
+]
+
+[[package]]
 name = "pytest"
 version = "9.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1779,6 +1791,10 @@ qibolab = [
     { name = "qibo" },
     { name = "qibolab" },
 ]
+qick = [
+    { name = "psutil" },
+    { name = "pyro4" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -1804,8 +1820,10 @@ requires-dist = [
     { name = "grpcio-status", specifier = ">=1.71.2" },
     { name = "numpy", specifier = ">=2.3,<3" },
     { name = "protobuf", specifier = ">=5.29,<6" },
+    { name = "psutil", marker = "extra == 'qick'", specifier = ">=5.9" },
     { name = "pydantic", specifier = ">=2.10,<3" },
     { name = "pymatching", specifier = ">=2.3" },
+    { name = "pyro4", marker = "extra == 'qick'", specifier = ">=4.82,<5" },
     { name = "pyvisa", marker = "extra == 'adapters'", specifier = ">=1.16" },
     { name = "pyvisa-sim", marker = "extra == 'adapters'", specifier = ">=0.7" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -1819,7 +1837,7 @@ requires-dist = [
     { name = "scipy", specifier = ">=1.16" },
     { name = "stim", specifier = ">=1.15" },
 ]
-provides-extras = ["adapters", "qibolab", "qibocal"]
+provides-extras = ["adapters", "qibolab", "qibocal", "qick"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -2115,6 +2133,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/bd/4e/3c45c33e00a77996c4b1cb707929f833ba7b1d522ee29f882512c330676d/scipy-1.18.1-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:e3b417bf8c2c7c16e8f58ad91db17783ec911ac16e7b50eb6eab6e809b4f5b07", size = 37457323, upload-time = "2026-08-21T23:25:12.483Z" },
     { url = "https://files.pythonhosted.org/packages/93/0e/e0348fbc0dbab65c114cf78957e7dfeb49f8e8b556b4d930cc12ff195e18/scipy-1.18.1-cp313-cp313-win_amd64.whl", hash = "sha256:559ed65f60c1af5a03f3912605a1b5114f522c7c32fb23c3376ae8f03219fe28", size = 36622841, upload-time = "2026-08-21T23:25:18.722Z" },
     { url = "https://files.pythonhosted.org/packages/50/a8/6a77f5f267c555108f0a864b6db714363dab567a8266422a79a385f9232b/scipy-1.18.1-cp313-cp313-win_arm64.whl", hash = "sha256:cd479fc04dd9401e3b4f49e76518768ef99c4f517a98c284eb091fd725719adf", size = 24399315, upload-time = "2026-08-21T23:25:23.458Z" },
+]
+
+[[package]]
+name = "serpent"
+version = "1.43"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/6b/bb/58ab4dc0382c2386355cbcb7ffa490e542159de6012d500a602a6d0ed535/serpent-1.43.tar.gz", hash = "sha256:62dc242fd4ea2a50339f4f5aaaf6ecc55605ee74770d7eb2031e760d90a0d114", size = 91641, upload-time = "2026-05-30T16:30:13.881Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/96/b0/75745c948bc814d145cc46cb6da219c7acf3875822d47f08d6323ccf0458/serpent-1.43-py3-none-any.whl", hash = "sha256:7907f40151da126d57bbd675364d23898efa6b6601d79379cbae800236586b54", size = 9787, upload-time = "2026-05-30T16:30:12.027Z" },
 ]
 
 [[package]]
