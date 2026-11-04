@@ -58,6 +58,9 @@ dev = [
   "cryptography>=42",               # TLS tests and scripts/make_dev_cert.py; without it pyright fails and TLS tests skip
   "ruff>=0.6",
   "pyright==1.1.414",               # pinned: CI type-checks with zero errors; bump deliberately
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "httpx>=0.27",
 ]
 
 [project.urls]
@@ -79,9 +82,9 @@ packages = ["src/qcss"]
 include = ["/src", "/tests", "/proto", "/scripts", "/buf.yaml", "/README.md", "/LICENSE", "/NOTICE", "/CHANGELOG.md"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "integrations/quark_qcss/tests", "integrations/qcss_qibolab/tests"]
+testpaths = ["tests", "integrations/quark_qcss/tests", "integrations/qcss_qibolab/tests", "integrations/qcss_dashboard/tests"]
 addopts = "-ra -q --strict-markers"
-pythonpath = ["src", ".", "integrations/quark_qcss/src", "integrations/qcss_qibolab/src"]
+pythonpath = ["src", ".", "integrations/quark_qcss/src", "integrations/qcss_qibolab/src", "integrations/qcss_dashboard/src"]
 markers = [
   "slow: long-running physics oracles (nightly)",
   "stochastic: statistical assertions; run with many seeds nightly",
@@ -95,10 +98,10 @@ line-length = 120
 extend-exclude = ["src/qcss/**/*_pb2*.py", "src/qcss/**/*_pb2*.pyi"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["qcss", "quark_qcss", "qcss_qibolab", "tests"]
+known-first-party = ["qcss", "quark_qcss", "qcss_qibolab", "qcss_dashboard", "tests"]
 
 [tool.pyright]
-include = ["src", "tests", "scripts", "integrations/quark_qcss", "integrations/qcss_qibolab", "platforms"]
-extraPaths = ["src", ".", "integrations/quark_qcss/src", "integrations/qcss_qibolab/src"]
+include = ["src", "tests", "scripts", "integrations/quark_qcss", "integrations/qcss_qibolab", "integrations/qcss_dashboard/src", "integrations/qcss_dashboard/tests", "platforms"]
+extraPaths = ["src", ".", "integrations/quark_qcss/src", "integrations/qcss_qibolab/src", "integrations/qcss_dashboard/src"]
 exclude = ["src/qcss/**/*_pb2*.py"]
 pythonVersion = "3.12"

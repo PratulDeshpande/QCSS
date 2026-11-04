@@ -1,0 +1,25 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "qcss-dashboard"
+version = "0.1.0"
+description = "QCSS Explorer: an operator dashboard that explains, visualizes and configures every layer of QCSS"
+requires-python = ">=3.12,<3.14"
+license = "Apache-2.0"
+authors = [{ name = "Pratul Deshpande" }]
+dependencies = [
+  "qcss>=0.1.0",
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+]
+
+[project.scripts]
+qcss-dashboard = "qcss_dashboard.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/qcss_dashboard"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/qcss_dashboard/explanations" = "qcss_dashboard/explanations"

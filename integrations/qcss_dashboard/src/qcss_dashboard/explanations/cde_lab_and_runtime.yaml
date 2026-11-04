@@ -1,0 +1,327 @@
+# Layers C (calibration), D (job) and E (chassis and live admin mode).
+
+# ------------------------------------------------------------------ C: calibration (proto/qcss/v1/calibration.proto)
+CalibrationSnapshot:
+  _about:
+    summary: Everything the lab has measured and told the instrument, versioned by an epoch.
+    detail: >-
+      Writes are compare-and-swap: UpdateCalibration carries the epoch the writer last saw and fails if someone wrote in
+      between. A job can pin the epoch it was compiled for; a stale job is refused (FAILED_PRECONDITION). Calibration is
+      pinned when a job is planned, as an instrument keeps what was uploaded.
+    source: src/qcss/runtime/calibration_store.py:50
+  calibration_epoch: Version counter, bumped by every successful write.
+  qubits: Per-qubit calibration.
+
+QubitCalibration:
+  _about:
+    summary: What the lab believes about one qubit.
+    detail: >-
+      Only qubits the OS has written use its discriminator; others use an automatic one fitted by the readout model.
+      Comparing these values with the device truth shows how far calibration has drifted.
+    source: proto/qcss/v1/calibration.proto:5
+  qubit_index: The qubit.
+  drive_frequency_hz:
+    summary: Frequency the drive NCO plays at; if it misses the true f01 the qubit sees a detuned drive.
+    equation: "\\Delta = 2\\pi(f_{01}^{true} - f_{drive})"
+  readout_frequency_hz: Probe tone frequency for the readout resonator.
+  pi_amplitude:
+    summary: Calibrated pi-pulse amplitude.
+    inert: true
+    detail: Stored and returned, but not applied by the simulator; jobs carry their own amplitudes.
+  pi_length_samples:
+    summary: Calibrated pi-pulse length; used for the reported single-qubit gate duration and error.
+    source: src/qcss/runtime/runner.py:323
+  drag_beta_samples:
+    summary: Calibrated DRAG coefficient.
+    inert: true
+    detail: Stored and returned, but not applied; DRAG waveforms carry their own beta.
+  readout_delay_ticks: Acquisition delay (the lab's estimate of the time of flight).
+  readout_rotation_rad:
+    summary: IQ rotation applied before thresholding.
+    equation: "label = [\\mathrm{Re}(z e^{-i\\theta}) > threshold]"
+  readout_threshold: Discrimination threshold on the rotated I axis.
+  drive_mixer: The lab's IQ-mixer correction for the drive line.
+  readout_mixer:
+    summary: The lab's IQ-mixer correction for the readout line.
+    inert: true
+    detail: Stored but not used by the readout model.
+  flux_predistortion: The lab's predistortion filters for the flux line.
+
+MixerCorrection:
+  _about:
+    summary: Correction the lab programs to cancel the hidden mixer error (DC offsets, gain ratio, phase skew).
+    detail: When it matches the hidden truth, the image sideband and LO leakage cancel.
+    equation: "q' = g_r(q\\cos\\phi + i\\sin\\phi) + dc_q,\\; i' = i + dc_i"
+    source: src/qcss/signal/mixer.py:32
+  dc_offset_i: DC offset added to I (cancels LO leakage).
+  dc_offset_q: DC offset added to Q.
+  gain_ratio: Q gain relative to I (0 is treated as 1).
+  phase_skew_rad: Phase skew correction mixing I into Q.
+
+FluxPredistortion:
+  _about:
+    summary: Real-time predistortion the lab programs to undo the flux line's distortion (Qblox RTP model).
+    detail: >-
+      Limits as in the Qblox driver: tau in [6 ns, 2 ms], amplitude in [-1, 1), at most 4 exponential stages, exactly 32
+      FIR taps in [-2, 2).
+    source: src/qcss/signal/predistortion.py:23
+  inverse_highpass_tau_s: Inverse bias-tee filter time constant.
+  exponential: Inverse exponential stages.
+  fir_coefficients:
+    summary: 32-tap FIR correction.
+    unit: ""
+
+ExponentialStage:
+  _about:
+    summary: One inverse-exponential predistortion stage.
+    equation: "H^{-1}(z) = \\frac{1 - p z^{-1}}{(1+A) - (p+A) z^{-1}}"
+  tau_s: Time constant of the corrected tail.
+  amplitude: Amplitude of the corrected tail.
+  enabled: Stage on or off.
+
+# ------------------------------------------------------------------ D: the job (proto/qcss/v1/job.proto)
+Job:
+  _about:
+    summary: One experiment submitted over the lab link.
+    detail: >-
+      Instructions carry absolute start ticks on named channels. Sweeps expand a job into points (zipped on one axis,
+      gridded across axes, last axis fastest). Every point is compiled, validated against the profile, dry-run to lift
+      pulses into gates, and routed to a fidelity tier.
+    source: src/qcss/runtime/runner.py:369
+  job_key: Client-chosen name; also part of the shot seed key.
+  waveform_library: Named waveforms the instructions refer to.
+  weight_library: Named integration weights for acquisitions.
+  main: The instruction block of the job.
+  sweeps: Sweep axes (amplitude, frequency or duration).
+  num_shots: Repetitions per sweep point.
+  repetition_delay_ticks:
+    summary: Idle time between shots; default 10 x the longest T1 so each shot starts near equilibrium.
+    source: src/qcss/runtime/runner.py:560
+  priority: Queue priority (higher runs first).
+  requested_tier: Fidelity tier the client asks for (the operator's tier policy may override it).
+  random_seed: Replay seed; only honoured in deterministic mode (a real lab cannot replay).
+  expected_calibration_epoch: Refuse the job if calibration has changed since this epoch.
+  program_points: Client-resolved sweep points (exclusive with sweeps).
+
+Waveform:
+  _about:
+    summary: One envelope, given as samples or synthesized from a shape.
+    detail: Gaussians are pedestal-subtracted and peak-normalized; DRAG adds j beta dI/dk.
+    equation: "w_{DRAG}[k] = g[k] + i\\beta\\,\\frac{dg}{dk}"
+    source: src/qcss/ir/waveforms.py:1
+  shape: Shape (samples, gaussian, drag, square, cosine flat-top).
+  samples: Explicit complex samples (for arbitrary shapes).
+  length_samples: Length in DAC samples.
+  sigma_samples: Gaussian width (default length / 4).
+  drag_beta_samples: DRAG coefficient in samples.
+  rise_fall_samples: Rise and fall length of a flat-top.
+
+NdArray:
+  _about:
+    summary: A typed array on the wire (raw little-endian, C order).
+    source: proto/qcss/v1/common.proto:1
+  element_type: Element type (float32/64, complex64/128, int8, uint8, int32, uint64).
+  shape: Array shape.
+  data:
+    summary: Raw bytes.
+    unit: ""
+
+IntegrationWeights:
+  _about:
+    summary: Complex integration weights for a weighted acquisition.
+  weights: The weights, one per ADC sample of the integration window.
+
+Block:
+  _about:
+    summary: An ordered list of timed instructions.
+  instructions: The instructions.
+
+Instruction:
+  _about:
+    summary: One timed operation; exactly one op is set.
+    detail: The discrete-event simulator orders same-tick events frame update < acquisition complete < branch < playback.
+    source: src/qcss/timing/des.py:17
+  start_tick: Absolute start time within the shot.
+  play: Play a waveform.
+  wait: Wait (ignored by the compiler; times are absolute).
+  shift_phase: Shift a frame's phase (a virtual Z gate).
+  set_phase: Set a frame's phase.
+  reset_phase: Reset a frame's phase.
+  set_frequency: Change a frame's NCO frequency.
+  acquire: Start an acquisition.
+  branch: Real-time feedback branch.
+
+Play:
+  _about:
+    summary: Play a waveform on a channel at an amplitude and phase.
+    detail: >-
+      The executor multiplies the envelope by the frame's NCO phase, then the drive chain applies the OS mixer
+      correction, the hidden mixer truth and the LO, and converts to the qubit's rotating frame.
+    equation: "\\Omega(t) = s\\,[\\mu\\,c(m) + \\nu\\,c(m)^* + dc]\\,e^{i2\\pi(f_{LO}-f_{frame})t}"
+    source: src/qcss/signal/port_renderer.py:23
+  channel_id: Channel (xy_q{i}, ro_q{i}, flux_q{i}, cr_q{c}_q{t}).
+  waveform_id: Waveform from the library.
+  amplitude: Amplitude relative to full scale, |A| <= 1.
+  phase_offset_rad: Extra phase on top of the frame phase.
+  duration_ticks: Duration (default from the waveform length).
+
+Wait:
+  _about:
+    summary: An explicit wait.
+  duration_ticks: Wait length.
+
+ShiftPhase:
+  _about:
+    summary: Add to a frame's phase (a virtual Z rotation, free and instantaneous).
+  frame_id: The frame (q{i}).
+  delta_rad: Phase added.
+
+SetPhase:
+  _about:
+    summary: Set a frame's phase.
+  frame_id: The frame.
+  phase_rad: New phase.
+
+ResetPhase:
+  _about:
+    summary: Reset a frame's phase to zero.
+  frame_id: The frame.
+
+SetFrequency:
+  _about:
+    summary: Change a frame's NCO frequency (IF relative to the port LO); a readout frame sets the probe frequency.
+  frame_id: The frame.
+  frequency_hz: New NCO frequency.
+
+Acquire:
+  _about:
+    summary: "Measure: integrate the readout signal and optionally discriminate it."
+    detail: The result is ready at start + time of flight + integration; a branch may use it only after the latency.
+    source: src/qcss/readout/model.py:57
+  channel_id: Readout channel (ro_q{i}).
+  integration_ticks: Integration window length.
+  mode: raw_trace, integrated or discriminated.
+  weights_id: Integration weights (empty for a square window).
+  register_index: Register the label is written to (for feedback).
+  result_key: Name of the result in the returned chunks.
+
+Branch:
+  _about:
+    summary: Real-time feedback; choose the then or else block from measured registers.
+  condition: The test on the registers.
+  then_block: Taken when the condition is true.
+  else_block: Taken otherwise.
+  duration_ticks: Declared duration of each arm.
+  sequencer_id: Generator that makes the decision (sets the routing latency).
+
+Condition:
+  _about:
+    summary: A test on measurement registers (bits packed LSB first).
+    source: src/qcss/ir/program.py:62
+  op: eq, ne, and, or, xor.
+  register_indices: Registers read.
+  value: Value compared with.
+  mask: Bit mask.
+
+Sweep:
+  _about:
+    summary: One sweep axis; sweeps on the same axis are zipped, different axes form a grid.
+    source: src/qcss/ir/compiler.py:208
+  axis: Axis number.
+  amplitude: Sweep an instruction's amplitude.
+  frequency: Sweep a frame's frequency.
+  duration: Sweep a waveform's length.
+  values: Values along the axis.
+
+AmplitudeTarget:
+  _about:
+    summary: Sweep target, the amplitude of one instruction.
+  instruction_index: Index of the instruction in main.
+
+FrequencyTarget:
+  _about:
+    summary: Sweep target, the frequency of one frame.
+  frame_id: The frame.
+
+DurationTarget:
+  _about:
+    summary: Sweep target, the length of one waveform.
+  waveform_id: The waveform.
+
+ProgramPoint:
+  _about:
+    summary: A client-resolved sweep point (its own instruction block).
+  indices: Position of the point on the sweep axes.
+  main: The point's instructions.
+
+# ------------------------------------------------------------------ E: chassis and live mode
+ChassisConfig:
+  _about:
+    summary: How the virtual lab is started (qcss serve).
+    detail: >-
+      The chassis is the long-lived lab server: the lab link (gRPC ControlService), the admin channel, optional board
+      faces (Qibosoq, QICK), persistence and the lab clock.
+    source: src/qcss/chassis.py:35
+  lab_address: Lab link listener (host:port); loopback by default.
+  admin_address: Admin channel listener; must differ from the lab address.
+  board_address: Qibosoq-compatible board face (TCP/JSON), if any.
+  tls:
+    summary: TLS certificate and key (required, with a token, for any non-loopback bind).
+    unit: ""
+  token:
+    summary: Bearer token of the lab link.
+    detail: Kept by the dashboard bridge only; never sent to the browser.
+  admin_token:
+    summary: Bearer token of the admin channel; must differ from the lab token.
+    detail: The more sensitive token (it reveals the hidden truth). Kept by the bridge only.
+  state_dir: Where the chip state is saved, so the chip survives restarts and ages while down.
+  seed: Global seed; empty means fresh entropy, as a real lab never repeats.
+  time_scale:
+    summary: Lab seconds per wall second; 0 freezes the chip between jobs and runs jobs unpaced.
+    unit: lab s / wall s
+  deterministic: Honour Job.random_seed (CI replay); off in a realistic lab.
+  tier: Physics tier for every job, the operator's choice (AUTO picks the cheapest faithful tier).
+  workers: Process-pool workers for chunks (0 runs in threads).
+  reflection: gRPC reflection (debug only; it reveals the service is QCSS).
+  save_interval_s: How often the chip state is saved.
+
+Mode:
+  _about:
+    summary: How the chassis runs right now; changed live over the admin channel.
+    source: src/qcss/adapters/admin_server.py:88
+  time_scale:
+    summary: Lab seconds per wall second, from now on (lab time so far is kept).
+    unit: lab s / wall s
+  deterministic: Replay job seeds (CI) or not (realistic).
+  tier_policy: Tier for every job; unspecified honours each job's own request.
+
+DriftStepRequest:
+  _about:
+    summary: Step a qubit's frequency and multiply its T1 (steps accumulate).
+  qubit_index: The qubit.
+  delta_frequency_hz: Frequency jump.
+  t1_factor: Multiply T1 by this (> 0).
+
+TlsCollisionRequest:
+  _about:
+    summary: A two-level-system defect drifts into resonance with the qubit, shortening T1.
+    equation: "\\Gamma_{TLS} = \\frac{g^2\\gamma}{\\Delta^2 + (\\gamma/2)^2}"
+  qubit_index: The qubit.
+  coupling_hz: Defect coupling g (0 means 0.5 MHz).
+  linewidth_hz: Defect linewidth gamma (0 means 1 MHz).
+  detuning_hz: Defect detuning from the qubit.
+
+BurstRequest:
+  _about:
+    summary: A cosmic-ray hit centred on the qubit, now; quasiparticles raise the decay rate for ~25 ms.
+  qubit_index: The qubit.
+  peak_gamma_per_s: Peak extra decay rate (0 means 2 per µs).
+
+InjectInstrumentFaultRequest:
+  _about:
+    summary: Make the instrument misbehave on the lab link (hang, drop, reboot, slow upload).
+    detail: A reboot fails every running job with a bare "instrument fault"; the real reason is only visible here.
+    source: src/qcss/adapters/instrument_faults.py:35
+  fault: HANG, DROP, REBOOT or SLOW_UPLOAD.
+  count: How many calls are affected.
+  duration_s: How long the fault lasts.

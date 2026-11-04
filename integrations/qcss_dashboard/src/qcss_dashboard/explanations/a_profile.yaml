@@ -1,0 +1,184 @@
+# Layer A: the hardware profile (src/qcss/config/profile.py).
+# Each entry: a string (the one-line summary) or a mapping with summary, detail, equation, unit, source, inert, apply.
+# Times are in ticks of clock.tick_hz unless the field name says otherwise.
+
+HardwareProfile:
+  _about:
+    summary: One vendor instrument (Qblox Cluster, ZI SHFQC+, QICK ZCU216) described as hardware rules.
+    detail: >-
+      The profile is the contract QCSS enforces: every timing grid, memory size, frequency range and feedback latency
+      a real instrument imposes. A job that would be refused by the real device is refused here with the same field
+      path. Each block carries provenance so you can see which numbers come from vendor documentation and which are
+      still estimates (verified false).
+    source: src/qcss/config/profile.py:121
+  profile_name: Name of the profile; lab clients see it in DescribeDevice.
+  vendor: Vendor string reported by DescribeDevice (qblox, zi, qick, ...).
+  clock: The master tick every time in QCSS is counted in.
+  ports: Physical outputs and inputs of the instrument (RF, baseband, direct-RF).
+  generators: Sequencers / AWGs / NCO channels; each is bound to one port and has its own memory and timing grid.
+  acquisition: What the readout inputs can do (modes, integration limits, spacing, time of flight).
+  feedback: Real-time feedback latencies and branch rules.
+
+ClockSpec:
+  _about:
+    summary: The integer tick that every time in QCSS is counted in.
+    detail: >-
+      QCSS never uses floating-point time. The tick is the least common multiple of every clock the instrument has
+      (DAC sample, sequencer cycle, ADC sample), so every event lands exactly on a tick. Example: QICK ZCU216 uses
+      34.4064 GHz, which is 5 ticks per DAC sample, 80 per tProc cycle and 112 per decimated ADC sample.
+    source: src/qcss/core/timebase.py:17
+  tick_hz:
+    summary: Tick frequency, as an exact decimal string (parsed as a fraction, never rounded).
+    equation: "t_{tick} = 1 / tick\\_hz"
+  provenance: Where the clock value comes from.
+
+Provenance:
+  _about:
+    summary: Where a block of numbers comes from, and whether anyone checked it.
+    detail: >-
+      Every profile block and device entry has provenance. The dashboard shows an "unverified" badge for any block with
+      verified false (qcss profile show lists the same set).
+    source: src/qcss/config/profile.py:15
+  source_url: Link to the vendor document or measurement the numbers were taken from.
+  firmware_version: Firmware the numbers apply to; limits change between firmware releases.
+  verified: True only when the value was checked against the vendor source; false marks an estimate.
+  note: Free-text remark (what is assumed, what is missing).
+
+PortSpec:
+  _about:
+    summary: One physical connector of the instrument.
+    detail: >-
+      A port collects the generators that play on it, sums their outputs and applies the full-scale check. RF ports
+      have an LO (the mixer up-converts the IF from the NCO); baseband ports carry flux pulses; rf_direct ports
+      synthesize the carrier digitally (LO = 0).
+    source: src/qcss/config/profile.py:75
+  port_id: Port name; generators refer to it, and compiled channels are bound through it.
+  kind:
+    summary: "rf_iq (IQ mixer with an LO), baseband (flux lines) or rf_direct (direct RF synthesis, no LO)."
+    detail: Baseband ports become flux channels (flux_q{i}); the other kinds carry drive and readout.
+  max_generators:
+    summary: How many generators may share this port; the profile is rejected if more point at it.
+  full_scale_per_path:
+    summary: Full-scale amplitude of each of the I and Q paths.
+    detail: The validator renders the sum of every generator on the port and compares the peak of |I| and |Q| with it.
+    equation: "\\max_n |I[n]|,\\; \\max_n |Q[n]| \\le FS"
+  saturation_policy:
+    summary: What happens above full scale.
+    detail: reject refuses the job; clip and wrap model the DAC behaviour; warn runs it and reports a warning.
+  lo_frequency_hz:
+    summary: Local-oscillator frequency of an RF port.
+    detail: The NCO plays the intermediate frequency IF = f_drive - f_LO; the mixer moves it up to the qubit.
+    equation: "f_{IF} = f_{drive} - f_{LO}"
+  output_latency_ticks:
+    summary: Extra pipeline delay of this output, added to the readout time of flight.
+    source: src/qcss/feedback/latency.py:62
+  provenance: Where the port numbers come from.
+
+GeneratorSpec:
+  _about:
+    summary: One sequencer / AWG / NCO channel that plays waveforms on a port.
+    detail: >-
+      Every Play instruction runs on a generator, and every timing, memory and NCO rule of the validator is a generator
+      field. Channels xy_q{i}, ro_q{i} and flux_q{i} are assigned to generators round-robin by role
+      (src/qcss/ir/compiler.py:323).
+    source: src/qcss/config/profile.py:47
+  generator_id: Generator name; channel bindings refer to it.
+  port_id: The port this generator plays on.
+  module_id:
+    summary: Module the generator sits in; decides the feedback routing class (self, intra-module, inter-module).
+    detail: Feedback latency depends on whether the measuring and branching generators share a module.
+  sample_rate_hz:
+    summary: DAC sample rate of this generator, exact decimal string.
+    detail: Ticks per sample = tick_hz / sample_rate_hz must be an integer.
+  rt_granularity_ticks:
+    summary: Real-time instruction grid; every Play must start on a multiple of it.
+    detail: Qblox runs on a 1 ns grid, ZI on 16 samples, QICK on 80 ticks (one tProc cycle).
+  rt_min_duration_ticks: Shortest allowed real-time instruction (a Play or Wait).
+  wave_granularity_samples: Waveform lengths must be a multiple of this many samples.
+  wave_min_samples: Shortest waveform the memory accepts.
+  wave_mem_samples:
+    summary: Waveform memory size in samples; unique waveforms of a job must fit.
+  max_waveforms: Maximum number of distinct waveforms in memory.
+  instr_mem:
+    summary: Sequencer instruction memory; the validator estimates the instruction count of the program.
+    detail: About two instructions per Play or Acquire, plus ceil(repetition delay / max wait) waits.
+  max_wait_ticks_per_instr: Longest wait a single instruction can express; longer waits cost extra instructions.
+  nco_count:
+    summary: Number of NCOs on the generator.
+    inert: true
+    detail: Validated but not used at runtime; QCSS models one NCO per generator.
+  nco_grid_ticks: Frame operations (phase or frequency updates) must land on this grid.
+  nco_min_spacing_ticks: Minimum time between two NCO updates.
+  nco_latched:
+    summary: When true, NCO updates take effect at the next real-time instruction, as on Qblox.
+    detail: Only the first drive generator's setting is used by the executor (src/qcss/runtime/runner.py:524).
+  nco_phase_steps:
+    summary: Phase resolution, steps per 2 pi; phases are quantized to 2 pi / steps.
+    unit: steps per 2π
+  nco_freq_resolution_hz: Frequency resolution; frequencies are rounded to a multiple of it.
+  nco_freq_range_hz: Allowed NCO frequency range (min, max); SetFrequency outside it is refused.
+  phase_continuous_freq_switch:
+    summary: Whether a frequency switch keeps the accumulated phase continuous.
+    inert: true
+    detail: The FrameTracker supports it but the executor never passes it, so it is always true at runtime.
+  overlap_policy: "reject refuses overlapping Plays on one generator; truncate_previous cuts the earlier one."
+  is_readout: Marks a readout generator (bound to ro_q{i} channels).
+  provenance: Where the generator numbers come from.
+
+AcquisitionSpec:
+  _about:
+    summary: What the readout inputs can do.
+    detail: >-
+      The validator checks every Acquire against these limits: supported mode, integration grid and maximum length
+      (square vs weighted), number of weight sets and the spacing between acquisitions.
+    source: src/qcss/config/profile.py:87
+  modes: "Supported acquisition modes: raw_trace (ADC samples), integrated (one IQ point), discriminated (a label)."
+  max_discriminated_states:
+    summary: How many states the discriminator can tell apart (2 for Qblox, 3 or more for ZI).
+  integration_granularity_ticks: Integration lengths must be a multiple of this.
+  max_square_integration_ticks: Longest integration with a square (unweighted) window.
+  max_weighted_integration_ticks: Longest integration with custom weights (weight memory is smaller).
+  max_weight_sets: Number of weight sets that can be loaded.
+  min_acq_spacing_ticks: Minimum time between two acquisitions on one input.
+  internal_tof_ticks:
+    summary: Internal time of flight of the instrument, part of the readout delay.
+    equation: "ToF = internal\\_tof + output\\_latency + \\lceil cable\\_delay \\cdot tick\\_hz \\rceil"
+    source: src/qcss/feedback/latency.py:62
+  integration_convention:
+    summary: "sum or mean: whether the integrated value is the sum of samples or their average."
+  provenance: Where the acquisition numbers come from.
+
+FeedbackSpec:
+  _about:
+    summary: Real-time feedback rules and latencies.
+    detail: >-
+      A Branch may only be taken once the measurement result has reached the deciding sequencer. The validator
+      refuses a branch scheduled earlier than acquisition start + time of flight + integration + routing latency.
+    equation: "t_{decision} \\ge t_{acq} + ToF + T_{int} + latency(src \\to dst)"
+    source: src/qcss/ir/validator.py:226
+  latencies: Latency table, one entry per (source, destination, payload, routing) class.
+  branch_equal_duration_required: Both arms of a branch must declare the same duration (keeps the timeline deterministic).
+  trigger_grid_ticks:
+    summary: Trigger network grid.
+    inert: true
+    detail: Declared by the profile but not consumed at runtime.
+  trigger_min_period_ticks:
+    summary: Minimum trigger period.
+    inert: true
+    detail: Declared by the profile but not consumed at runtime.
+  max_condition_addresses: How many measurement registers one branch condition may read.
+
+LatencyEntry:
+  _about:
+    summary: One feedback latency, from the last ADC sample in to the first DAC sample out.
+    detail: The most specific entry matching (source, destination, payload, routing) wins; no match refuses the job.
+    source: src/qcss/feedback/latency.py:24
+  src: Source generator id, or * for any.
+  dst: Destination generator id, or * for any.
+  payload: "bit (a discriminated label) or iq (the integrated value)."
+  routing: "self (same generator), intra (same module), inter (different modules) or central (a central controller)."
+  latency_ticks: Latency in ticks.
+  jitter_ticks:
+    summary: Uniform jitter added to the latency, drawn from the seeded JITTER stream.
+    equation: "latency = base + U[-jitter, +jitter]"
+  provenance: Where the latency comes from.

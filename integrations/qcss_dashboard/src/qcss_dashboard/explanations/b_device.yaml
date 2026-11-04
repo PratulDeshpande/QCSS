@@ -1,0 +1,173 @@
+# Layer B: the device, the hidden truth (src/qcss/config/device.py). Lab clients never see these numbers.
+
+DeviceSpec:
+  _about:
+    summary: The chip behind the instrument; its true parameters are hidden from lab clients.
+    detail: >-
+      QCSS simulates this chip. Clients only see what they measure (through Qibocal, the virtual technician). With a
+      dynamics block the chip drifts on the lab clock; with a faults block it has mixer and flux-line errors the lab
+      must calibrate away. The validator checks T2* <= 2 T1, temperature vs excited population, and a non-zero
+      dispersive shift.
+    source: src/qcss/config/device.py:104
+  device_name: Name of the chip.
+  qubits: The transmons.
+  couplers: Fixed exchange couplings between qubit pairs.
+  resonators: One readout resonator per measured qubit.
+  m_dc:
+    summary: DC flux crosstalk matrix (SQUIDs x lines).
+    inert: true
+    detail: Only used for a validation warning (> 10 % off-diagonal); the runtime has no DC bias path.
+    unit: Φ0 per V
+  m_fast:
+    summary: Fast-flux crosstalk matrix, flux quanta per full-scale amplitude (qubits x flux lines).
+    detail: Defaults to 0.5 on the diagonal (src/qcss/runtime/runner.py:74). Off-diagonal terms make a flux pulse on
+      one line detune neighbouring qubits.
+    equation: "\\Delta\\Phi_q(t) = \\sum_l M^{fast}_{ql} V_l(t)"
+    unit: Φ0 / FS
+  chip_area_cm2:
+    summary: Chip area; sets the cosmic-ray impact rate (0.035 per cm² per s x area).
+    source: src/qcss/device/bursts.py:21
+  dynamics: Slow drift, TLS defects and bursts. Absent means a static chip (oracle devices).
+  faults: Hidden mixer and flux-line impairments. Absent means ideal electronics.
+
+QubitSpec:
+  _about:
+    summary: One transmon, modelled as a three-level qutrit (|0>, |1>, |2>).
+    detail: >-
+      The idle frequency comes from the asymmetric-SQUID formula at phi_offset. Anharmonicity is -E_C, so the 1-2
+      transition sits E_C below f01 (leakage to |2> is simulated at T2). Thermal population follows from t_eff_mk or
+      p_excited.
+    equation: "f_{01}(\\Phi) = (f_{max}+E_C)\\,[\\cos^2\\pi\\Phi + d^2\\sin^2\\pi\\Phi]^{1/4} - E_C"
+    source: src/qcss/physics/transmon.py:17
+  qubit_index: Qubit number; channels are named after it (xy_q0, ro_q0, flux_q0).
+  f_max_ghz:
+    summary: Maximum (sweet-spot) 0-1 frequency.
+    equation: "f_{01}(0) = f_{max}"
+  ec_ghz:
+    summary: Charging energy; anharmonicity alpha = -E_C.
+    detail: Sets how far |2> is from the 0-1 drive, hence how much a short pulse leaks (DRAG corrects it).
+  d_asym:
+    summary: SQUID junction asymmetry d in [0, 1]; d > 0 keeps a minimum frequency at half a flux quantum.
+  phi_offset:
+    summary: Static flux offset; sets the idle frequency below the sweet spot and the flux-noise sensitivity.
+    unit: Φ0
+  t1_us:
+    summary: Energy relaxation time T1 (the baseline; drift moves it on the lab clock).
+    equation: "\\Gamma_1 = 1/T_1,\\; \\gamma = 1/(T_1(1+2\\bar n))"
+  t2_star_us:
+    summary: Ramsey dephasing time T2*; must not exceed 2 T1.
+    equation: "\\gamma_\\phi = 1/T_2^* - 1/(2T_1)"
+  t_eff_mk:
+    summary: Effective qubit temperature; sets the thermal excited population (Bose).
+    equation: "\\bar n = 1/(e^{h f_{01}/k_B T} - 1)"
+  p_excited:
+    summary: Residual excited population; an alternative to t_eff_mk (they must agree within 0.01).
+    unit: probability
+  rabi_max_ghz:
+    summary: Rabi frequency at full-scale drive amplitude.
+    detail: A square pulse of amplitude A and length t rotates by 2 pi A rabi_max t.
+    equation: "\\Omega = 2\\pi \\cdot A \\cdot f_{Rabi,max}"
+  xy_mm: Position on the chip; cosmic-ray bursts hit nearby qubits harder.
+  provenance: Where the qubit numbers come from.
+
+CouplerSpec:
+  _about:
+    summary: Exchange coupling J between two qubits (CZ gates via the |11>-|02> crossing).
+    equation: "H_c = J(a_i^\\dagger a_j + a_i a_j^\\dagger),\\; t_{CZ} = 1/(2\\sqrt2 J)"
+    source: src/qcss/runtime/runner.py:345
+  qubit_pair: The two coupled qubits.
+  j_mhz: Exchange coupling strength.
+  f_max_ghz:
+    summary: Tunable-coupler sweet spot.
+    inert: true
+    detail: Only j_mhz is used; QCSS models fixed couplings.
+  ec_ghz:
+    summary: Tunable-coupler charging energy.
+    inert: true
+    detail: Only j_mhz is used.
+  d_asym:
+    summary: Tunable-coupler asymmetry.
+    inert: true
+    detail: Only j_mhz is used.
+  phi_offset:
+    summary: Tunable-coupler flux offset.
+    inert: true
+    detail: Only j_mhz is used.
+    unit: Φ0
+  provenance: Where the coupler numbers come from.
+
+ResonatorSpec:
+  _about:
+    summary: The readout resonator of one qubit (dispersive readout).
+    detail: >-
+      Each qubit level pulls the resonator by a different amount, so the reflected tone separates in the IQ plane.
+      The resonator field rings up over ~1/kappa, the signal arrives after the time of flight, and noise is set by the
+      measurement efficiency eta.
+    equation: "\\dot\\alpha = -(i\\Delta_m + \\kappa/2)\\alpha + \\sqrt\\kappa A(t),\\; B = -A + \\sqrt\\kappa\\alpha"
+    source: src/qcss/readout/resonator.py:17
+  qubit_index: The measured qubit.
+  f_r_ghz: Bare (midpoint) resonator frequency.
+  kappa_mhz: Resonator linewidth (energy decay rate); sets the ring-up time and the readout speed.
+  pulls_mhz:
+    summary: Frequency pull for qubit levels 0, 1 and 2; pulls[1] - pulls[0] = 2 chi must be non-zero.
+    equation: "2\\chi = pull_1 - pull_0"
+  cable_delay_ns: Cable delay between instrument and chip and back; part of the time of flight.
+  eta:
+    summary: Measurement quantum efficiency; lower means noisier IQ points.
+    equation: "\\sigma^2 = 1/(4\\eta\\,dt)"
+    unit: ""
+  readout_photons: Photons in the resonator at the nominal probe amplitude; more photons, better separation.
+  provenance: Where the resonator numbers come from.
+
+DynamicsSpec:
+  _about:
+    summary: Slow drift of the chip on the lab clock (T1 wander, 1/f flux noise, TLS defects, cosmic-ray bursts).
+    detail: >-
+      This is why calibration goes stale: frequencies wander, T1 fluctuates, two-level-system defects drift through
+      resonance and cosmic rays briefly kill coherence across the chip. TLS ranges and burst shape are fixed in code
+      (src/qcss/device/tls.py:19, src/qcss/device/bursts.py:21).
+    source: src/qcss/device/state.py:18
+  enabled: Turns the dynamics on.
+  t1_sigma_ln:
+    summary: Spread of ln T1 (log-normal Ornstein-Uhlenbeck drift).
+    unit: ""
+    equation: "d\\ln T_1 = -\\frac{\\ln T_1 - \\mu}{\\tau}dt + \\sigma\\sqrt{2/\\tau}\\,dW"
+  t1_tau_s: Correlation time of the T1 drift.
+  flux_noise_ghz:
+    summary: Amplitude of 1/f frequency noise (sum of OU processes, one per decade from 1e-4 to 1e3 Hz).
+  tls_per_qubit:
+    summary: Number of two-level-system defects near each qubit; one near resonance shortens T1 sharply.
+    unit: count
+    equation: "\\Gamma_{TLS} = \\frac{g^2\\gamma}{\\Delta^2 + (\\gamma/2)^2}"
+  bursts: Cosmic-ray bursts on or off.
+  provenance: Where the dynamics numbers come from.
+
+FaultSpec:
+  _about:
+    summary: Hidden instrument impairments the lab must calibrate away.
+    source: src/qcss/config/device.py:91
+  drive_mixers: True IQ-mixer errors per drive line.
+  flux_lines: True flux-line distortion per qubit.
+
+MixerImpairmentSpec:
+  _about:
+    summary: The real (hidden) IQ-mixer imbalance of one drive line; produces an image sideband and LO leakage.
+    equation: "x = \\mu\\,m + \\nu\\,m^* + (dc_i + i\\,dc_q)"
+    source: src/qcss/signal/mixer.py:15
+  qubit_index: The driven qubit.
+  gain_i: Gain of the I path.
+  gain_q: Gain of the Q path.
+  phase_rad: Phase skew between I and Q.
+  dc_i: DC offset of I (LO leakage).
+  dc_q: DC offset of Q (LO leakage).
+
+FluxLineSpec:
+  _about:
+    summary: The real (hidden) step response of one flux line (exponential tails, bias-tee droop).
+    equation: "s[n] = \\prod_k (1 + A_k p_k^n),\\; p_k = e^{-1/(\\tau_k f_s)}"
+    source: src/qcss/signal/filters.py:61
+  qubit_index: The qubit on this flux line.
+  exp_terms:
+    summary: Exponential terms (A_k, tau_k in seconds) of the line response, Rol form.
+    unit: "(1, s)"
+  bias_tee_tau_s: Bias-tee high-pass time constant; the step slowly droops to zero.
