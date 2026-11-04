@@ -11,6 +11,10 @@ cannot tell it is a simulator.
 
 ### Added
 
+* QCSS Explorer (`integrations/qcss_dashboard`): an operator dashboard that explains, visualizes and configures
+  every layer (profile, device, calibration, job, chassis), with an embedded virtual lab, a sandbox that runs jobs
+  through QCSS's own pipeline, admin and lab-bench views, and a registry that documents every config field.
+  See `integrations/qcss_dashboard/README.md`.
 * `qcss-qibolab`: a Qibolab `Controller` for QCSS instruments, and the platform `qcss_qblox_5q`.
 * A Qibosoq-compatible board face (`qcss serve --board-listen`) and the platform `qcss_rfsoc_5q`,
   which uses Qibolab's own unmodified RFSoC driver. Only the board address differs from a lab's platform.
