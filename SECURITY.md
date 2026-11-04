@@ -48,7 +48,9 @@ mind before reporting them as vulnerabilities:
   queues the rest). The server keeps each job's results so clients can reconnect and resume: at most
   256 MiB per job (older chunks every reader has passed are dropped, and resuming before them returns
   `OUT_OF_RANGE`) and the 256 most recent finished jobs (older ones return `NOT_FOUND`). The board face
-  does not yet cap its 4-byte length prefix, so a client can make it buffer a very large request.
+  refuses requests over 16 MiB without reading them, drops a client that takes more than 30 s to send
+  its request, and refuses sweeps beyond 2^18 points x sequence elements, each with the board's own
+  resource error. It does not cap `reps`: the reply to a long unaveraged run is held in memory.
 * **The clients protect the tokens.** `QcssClient`, `qcss remote` and `qcss admin` refuse to send a
   token without TLS to a non-loopback address unless `insecure=True` / `--insecure` is given.
 * **The technician runs Qibocal as a subprocess** with the platform folder and the environment you

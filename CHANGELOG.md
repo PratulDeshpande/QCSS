@@ -52,6 +52,10 @@ cannot tell it is a simulator.
 
 ### Fixed
 
+* The board face could be made to buffer an unbounded request or to build an unbounded sweep, and
+  a client that stalled mid-request held its connection forever. It now refuses requests over 16 MiB
+  unread, drops a client that takes more than 30 s to send, and refuses sweeps beyond 2^18
+  points x elements, answering with the board's own resource error.
 * Two clients could race a calibration upload against a job. The Qibolab driver now pins each job
   to the settings its own `play` uploaded (`expected_calibration_epoch`).
 * A chassis now runs one job at a time, as one chip does.

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import pathlib
 import sys
@@ -319,6 +320,39 @@ def run(job_path: str, profile: str, device: str | None, shots: int | None, tier
         click.echo(f"Saved results to: {out_path.resolve()}")
 
 
+def _parse_qick_loopback(values: tuple[str, ...], qick_ns: str | None) -> tuple[tuple[int, int], ...]:
+    """``--qick-loopback GEN:RO`` values as (generator, readout) pairs."""
+    if values and qick_ns is None:
+        raise click.UsageError("--qick-loopback cables the native QICK board: it needs --qick-ns host:port")
+    cables = []
+    for v in values:
+        parts = v.split(":")
+        if len(parts) != 2 or not all(p.isdigit() for p in parts):
+            raise click.UsageError(f"--qick-loopback {v}: give GEN:RO, a generator and a readout index, e.g. 6:0")
+        cables.append((int(parts[0]), int(parts[1])))
+    return tuple(cables)
+
+
+def _check_qick_options(qick_ns: str | None, qick_listen: str, start_ns: bool, insecure: bool) -> None:
+    """The native QICK board's addresses: TCP host:port, and on a network only with --insecure."""
+    if qick_ns is None:
+        if start_ns:
+            raise click.UsageError("--qick-start-ns needs --qick-ns host:port (where to run the nameserver)")
+        return
+    ns_host, _, ns_port = qick_ns.rpartition(":")
+    if not ns_host or not ns_port.isdigit():
+        raise click.UsageError(f"--qick-ns {qick_ns}: the Pyro4 nameserver is TCP host:port, e.g. 127.0.0.1:8888")
+    l_host, _, l_port = qick_listen.partition(":")
+    if not l_host or (l_port and not l_port.isdigit()):
+        raise click.UsageError(f"--qick-listen {qick_listen}: give host or host:port, e.g. 127.0.0.1")
+    if importlib.util.find_spec("Pyro4") is None:
+        raise click.UsageError("the native QICK board needs Pyro4: pip install 'qcss[qick]'")
+    for flag, addr in (("--qick-listen", f"{l_host}:{l_port or 0}"), ("--qick-ns", qick_ns if start_ns else None)):
+        if addr is not None and not insecure and not is_local_address(addr):
+            raise click.UsageError(f"refusing to bind {flag} {addr} to the network: Pyro4 has no TLS and no token "
+                                   "(QICK's own boards neither); pass --insecure on a network you trust")
+
+
 @app.command("serve")
 @click.option("--host", "-h", default="127.0.0.1", help="gRPC host bind address (a network bind needs TLS and --token)")
 @click.option("--port", "-p", type=int, default=50051, help="gRPC port")
@@ -349,10 +383,25 @@ def run(job_path: str, profile: str, device: str | None, shots: int | None, tier
 @click.option("--debug-reflection", is_flag=True, help="Advertise the services through gRPC reflection (debugging)")
 @click.option("--board-listen", default=None,
               help="Also serve a Qibosoq-compatible board face (TCP/JSON) here, e.g. 127.0.0.1:6000")
+@click.option("--qick-ns", default=None,
+              help="Also serve a native QICK board (Pyro4, as qick.pyro.start_server does), registered with the "
+                   "Pyro4 nameserver at this host:port, e.g. 127.0.0.1:8888")
+@click.option("--qick-name", default="myqick", show_default=True,
+              help="The QICK board's proxy name in the nameserver (make_proxy's proxy_name)")
+@click.option("--qick-listen", default="127.0.0.1", show_default=True,
+              help="host[:port] the QICK board's Pyro4 daemon binds; clients connect here after the lookup")
+@click.option("--qick-firmware", type=click.Choice(["zcu216_v2_5q", "zcu216_v1_5q"]), default="zcu216_v2_5q",
+              show_default=True, help="The firmware the QICK board runs: tProc v2 or v1")
+@click.option("--qick-start-ns", is_flag=True, help="Also run the Pyro4 nameserver at --qick-ns in this process")
+@click.option("--qick-loopback", "qick_loopback", multiple=True, metavar="GEN:RO",
+              help="Wire a bench test cable from generator GEN to readout RO's ADC (repeatable), as QICK's first "
+                   "tutorials assume: that generator leaves the chip and the readout hears only the cable")
 def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: str | None, workers: int,
               seed: int | None, tls_cert: str | None, tls_key: str | None, token: str | None, insecure: bool,
               time_scale: float, admin_listen: str | None, admin_token: str | None, state_dir: str | None,
-              deterministic: bool, tier: str, debug_reflection: bool, board_listen: str | None):
+              deterministic: bool, tier: str, debug_reflection: bool, board_listen: str | None,
+              qick_ns: str | None, qick_name: str, qick_listen: str, qick_firmware: str, qick_start_ns: bool,
+              qick_loopback: tuple[str, ...]):
     """Run the simulated instrument (the chassis): the instrument link, and optionally the admin link."""
     from qcss.chassis import Chassis, ChassisConfig
 
@@ -379,7 +428,9 @@ def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: st
     if board_listen is not None and not insecure and not is_local_address(board_listen):
         raise click.UsageError(f"refusing to bind the board face to {board_listen}: the qibosoq protocol has no TLS "
                                "and no token; pass --insecure on a network you trust")
-    tls = (pathlib.Path(tls_cert).read_bytes(), pathlib.Path(tls_key).read_bytes()) if tls_cert and tls_key else None
+    _check_qick_options(qick_ns, qick_listen, qick_start_ns, insecure)
+    cables = _parse_qick_loopback(qick_loopback, qick_ns)
+    tls =(pathlib.Path(tls_cert).read_bytes(), pathlib.Path(tls_key).read_bytes()) if tls_cert and tls_key else None
 
     prof = load_profile(_resolve_profile_path(profile))
     d_path = _resolve_device_path(device)
@@ -388,7 +439,8 @@ def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: st
         profile=prof, device=dev, lab_address=addr, admin_address=admin_listen, tls=tls, token=token,
         admin_token=admin_token, state_dir=pathlib.Path(state_dir) if state_dir else None, seed=seed,
         time_scale=time_scale, deterministic=deterministic, tier=tier.upper(), workers=workers,
-        reflection=debug_reflection, board_address=board_listen))
+        reflection=debug_reflection, board_address=board_listen, qick_ns=qick_ns, qick_name=qick_name,
+        qick_listen=qick_listen, qick_firmware=qick_firmware, qick_start_ns=qick_start_ns, qick_loopback=cables))
 
     security = ("TLS" if tls else "plaintext") + (", token required" if token else ", no token")
     click.echo(f"Starting QCSS ControlService on {addr} ({security}) with profile '{prof.profile_name}'...")
