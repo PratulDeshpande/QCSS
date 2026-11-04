@@ -79,7 +79,12 @@ then detail, type, default and range; then equations and the source file that im
   palette passes the six-check validator on the dark surface.
 * **Guards.** Mutating calls need the `X-QCSS-Dashboard` header (a CSRF guard). Read-only mode, the login token, an audit
   log of every change, and shipped profiles and devices are never overwritten: drafts are saved under new names in the
-  workspace.
+  workspace. Requests for unknown `Host` names and cross-origin mutations or WebSocket upgrades are refused (DNS
+  rebinding and CSRF). Request sizes are bounded (samples, integration, hours, points, shots, qubit): the GET and POST
+  forms of the chip and readout views share the same bounds, a sandbox sweep is capped at 201 points (counted before
+  anything is planned), and a busy sandbox answers 503 instead of queueing worker threads.
+* **Calibration writes.** The calibration editor merges your edits over the qubit's full calibration, because QCSS
+  replaces a written qubit wholesale. A restart starts the new chassis first and keeps the running one if that fails.
 
 ## Tests
 
@@ -97,5 +102,5 @@ npx playwright install chromium && npx playwright test           # 15 journeys a
   distribution.
 * QCSS has no `ListJobs`, progress or event RPCs. The Lab bench lists only jobs the dashboard submitted, and live state
   is polled. Adding admin-only hooks for these is a separate, proto-changing step.
-* The native QICK face is not on this branch yet. The Board faces view describes it; its tProc disassembly and event
-  views will follow it.
+* The native QICK face (`qcss serve --qick-ns`) is merged and the Board faces view describes it. Views of its tProc
+  disassembly and event stream are not built yet.

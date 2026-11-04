@@ -77,9 +77,10 @@ within a stated statistical tolerance, such as 5σ binomial), not a number copie
 | `tests/unit/` | One file per module, plus Hypothesis property tests |
 | `tests/oracles/` | Physics compared with analytic formulas through the real runtime |
 | `tests/cross_tier/` | Tiers agree where their domains overlap |
-| `tests/integration/` | gRPC end to end, chassis, admin channel, board face, technician, indistinguishability |
+| `tests/integration/` | gRPC end to end, chassis, admin channel, both board faces (Qibosoq and native QICK), technician, indistinguishability |
 | `tests/virtual_lab/` | Acceptance through the path Quark takes (QASM in, Qibolab compile, counts out); marker `virtual_lab` |
 | `integrations/qcss_qibolab/tests/` | The Qibolab driver: translation, platforms, calibration pinning |
+| `integrations/qcss_dashboard/tests/` | The Explorer bridge (`uv run pytest integrations/qcss_dashboard/tests -n 2`); its React frontend has vitest and Playwright tests under `web/` (see its README) |
 
 Use the `stochastic` and `slow` markers for statistical and long-running tests, and `virtual_lab` for
 tests that run through Qibolab against a chassis. Do not hard-code network ports: bind to port 0 or use

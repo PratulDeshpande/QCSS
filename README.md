@@ -339,7 +339,7 @@ pyright                             # type check against the lab venv (must repo
 python scripts/gen_proto.py         # regenerate src/qcss/v1 and src/qcss/admin/v1 after editing a .proto file
 ```
 
-<!-- AUTO-GENERATED from `pytest --collect-only` (644 tests) -->
+<!-- AUTO-GENERATED from `pytest --collect-only` (646 tests) -->
 | Directory | Tests | What it proves |
 | --- | --- | --- |
 | `tests/unit/` | 309 | One file per module, plus Hypothesis property tests |
@@ -348,7 +348,7 @@ python scripts/gen_proto.py         # regenerate src/qcss/v1 and src/qcss/admin/
 | `tests/integration/` | 175 | gRPC end to end, chassis, admin channel, both board faces (Qibosoq and native QICK), technician, indistinguishability scan |
 | `tests/virtual_lab/` | 10 | Acceptance through the path Quark takes: QASM in, Qibolab compile, counts out |
 | `integrations/qcss_qibolab/tests/` | 13 | Translation, platform loading, calibration pinning |
-| `integrations/qcss_dashboard/tests/` | 69 | The Explorer bridge: registry, config store, guarded API, live chassis, experiments, views, CLI |
+| `integrations/qcss_dashboard/tests/` | 71 | The Explorer bridge: registry, config store, guarded API, live chassis, experiments, views, CLI |
 | `integrations/quark_qcss/tests/` | 52 | The deprecated driver |
 <!-- END AUTO-GENERATED -->
 

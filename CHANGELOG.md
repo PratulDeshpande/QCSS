@@ -56,6 +56,16 @@ cannot tell it is a simulator.
 
 ### Fixed
 
+* The Explorer bridge's GET `/api/views/chip` and `/api/views/readout` skipped the bounds their POST twins apply
+  (`hours=1e9` simulated a billion hours of drift). They now share the POST handlers, so out-of-range values are a 400.
+  The sandbox counts a sweep's points before planning, so a million-point sweep is refused without being compiled.
+* The Explorer refuses requests for unknown `Host` names (DNS rebinding) and cross-origin mutations and WebSocket
+  upgrades, bounds request sizes, answers 503 when the sandbox is busy, merges calibration edits over the qubit's full
+  calibration (QCSS replaces a written qubit wholesale), and keeps the running chassis if a restart fails.
+* `qcss serve` validates its flags (`--qick-loopback`, `--qick-ns`, the bind addresses) before checking that Pyro4 is
+  installed, so a typo is no longer reported as "install Pyro4".
+* CI installs the `qick` extra and the `qick==0.2.370` client, so the QICK face's tests run there instead of
+  skipping; the GitHub actions moved to v7 and Dependabot watches the Explorer's npm packages.
 * The board face could be made to buffer an unbounded request or to build an unbounded sweep, and
   a client that stalled mid-request held its connection forever. It now refuses requests over 16 MiB
   unread, drops a client that takes more than 30 s to send, and refuses sweeps beyond 2^18
