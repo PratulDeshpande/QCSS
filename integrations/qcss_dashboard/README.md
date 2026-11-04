@@ -5,7 +5,8 @@ screen is computed by QCSS's own code: the compiler, the validator, the signal c
 None of it is mocked or re-derived in the browser.
 
 QCSS Explorer is an **operator surface**: it shows the chip's hidden truth and drives the admin channel. It adds nothing
-to the lab link, so what a lab client can see is unchanged. That is the indistinguishability rule in `docs/HLD.md`.
+to the lab link, so what a lab client can see is unchanged. That is the indistinguishability rule: the lab link must
+never reveal that it is a simulator.
 
 ## Run it
 

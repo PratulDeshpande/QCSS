@@ -95,7 +95,10 @@ def test_a_decimated_window_shows_the_time_of_flight(board):
     tr = prog.acquire_decimated(soc, rounds=20, progress=False)[0]
     assert tr.shape == (prog.ro_chs[0]["length"], 2)
     mag = np.hypot(tr[:, 0], tr[:, 1])
-    assert mag[:5].mean() < 0.3 * mag[-20:].mean()                    # the tone is not back yet at the start
+    # The tone is not back yet at the start: the first samples hold only the noise floor (a magnitude, so about a
+    # quarter of the settled tone after 20 rounds, not zero). Average 15 of them, all before the ~100 ns time of
+    # flight, so the floor's own scatter stays far below the threshold; a tone present from sample 0 gives ~1.
+    assert mag[:15].mean() < 0.5 * mag[-20:].mean()
 
 
 def test_run_rounds_runs_the_program_without_reading_data(board):

@@ -265,6 +265,16 @@ ChassisConfig:
   lab_address: Lab link listener (host:port); loopback by default.
   admin_address: Admin channel listener; must differ from the lab address.
   board_address: Qibosoq-compatible board face (TCP/JSON), if any.
+  qick_ns:
+    summary: Pyro4 nameserver (host:port) the native QICK board registers with; empty means no QICK board.
+    detail: >-
+      The board is served as qick.pyro.start_server serves a real QickSoc, so qick.pyro.make_proxy finds it there.
+      Pyro4 has no TLS or token, so a non-loopback nameserver needs --insecure.
+  qick_name: The QICK board's proxy name in the nameserver (make_proxy's proxy_name).
+  qick_listen: Host[:port] the QICK board's Pyro4 daemon binds; port 0 or none picks a free one.
+  qick_firmware: Firmware the virtual QICK board runs (zcu216_v2_5q for tProc v2, zcu216_v1_5q for tProc v1).
+  qick_start_ns: Also run the Pyro4 nameserver at qick_ns inside the chassis.
+  qick_loopback: Bench test cables from QICK generators to readouts, as (generator, readout) pairs.
   tls:
     summary: TLS certificate and key (required, with a token, for any non-loopback bind).
     unit: ""

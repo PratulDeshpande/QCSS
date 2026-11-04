@@ -1,6 +1,6 @@
 """The architecture map the Atlas view draws: QCSS's layers, what flows between them, and where each lives in code.
 
-Written from docs/HLD.md (layer table), docs/HLD_QCSS.md and the code paths traced in src/qcss. Every node names the
+Written from the design notes and the code paths traced in src/qcss. Every node names the
 packages and source lines it summarizes, so the dashboard can link each block to the code that implements it.
 """
 from __future__ import annotations

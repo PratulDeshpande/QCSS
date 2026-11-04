@@ -25,7 +25,7 @@ in the advisory unless they prefer otherwise.
 QCSS is a **local development and test tool**, not a hardened network service. Please keep these in
 mind before reporting them as vulnerabilities:
 
-* **Three listeners, each loopback by default.** `qcss serve` can open:
+* **Four listeners, each loopback by default.** `qcss serve` can open:
   * the **instrument link** (gRPC, `--listen`/`--host`): for LAN use pass `--tls-cert`/`--tls-key` and
     `--token` (or `QCSS_TOKEN`); every call except the gRPC health check then needs
     `authorization: Bearer <token>`;
@@ -34,15 +34,24 @@ mind before reporting them as vulnerabilities:
     a token. It can read the chip's true state and inject faults, so treat its token as the more
     sensitive one. The lab listener never serves admin RPCs;
   * the **Qibosoq board face** (TCP/JSON, `--board-listen`): no TLS and no token, because the Qibosoq
-    protocol has neither.
+    protocol has neither;
+  * the **native QICK face** (Pyro4, `--qick-ns`/`--qick-listen`, and the nameserver with
+    `--qick-start-ns`): no TLS and no token, because QICK's own Pyro4 server has neither.
 
-  Any non-loopback bind is refused without TLS and a token (for the board face: always) unless
+  Any non-loopback bind is refused without TLS and a token (for the two board faces: always) unless
   `--insecure` is given. There is one token per channel and no per-user access control: anyone holding
   the lab token can submit jobs and overwrite the calibration.
-* **Untrusted input is protobuf or JSON only.** The server never unpickles network data. The board
-  face parses JSON; the chip state file (`--state-dir`) and the technician's request spool are plain
-  JSON, and a pickle in place of the state file is refused, not executed. `pickle` is used solely for
-  parent-to-child communication inside the server's own worker pool.
+
+  The QCSS Explorer bridge (`integrations/qcss_dashboard`) is a separate process with the same rule: a
+  non-loopback bind needs TLS and a login token (`QCSS_DASHBOARD_TOKEN`) unless `--insecure` is given.
+  It holds the lab and admin tokens itself and never sends them to the browser.
+* **Untrusted input is protobuf, JSON or allowlisted pickle.** The board face parses JSON; the chip
+  state file (`--state-dir`) and the technician's request spool are plain JSON, and a pickle in place of
+  the state file is refused, not executed. The native QICK face must speak pickle, because QICK clients
+  send nothing else; its decoder (`src/qcss/boards/qick/serializer.py`) resolves only an allowlist of
+  plain-data, numpy, `OrderedDict`, Pyro URI and exception globals and refuses any other, so a pickle
+  gadget is rejected before it can run. Otherwise `pickle` is used solely for parent-to-child
+  communication inside the server's own worker pool.
 * **Resource limits are modest.** gRPC messages are capped at 16 MiB and hardware-rule checks reject
   oversized programs, but a client can still submit many large jobs (the chassis runs one at a time and
   queues the rest). The server keeps each job's results so clients can reconnect and resume: at most

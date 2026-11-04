@@ -21,9 +21,9 @@ Three ideas make it useful rather than a toy:
    on a separate admin channel that the lab interface never exposes.
 
 > **Status: alpha (0.1.0, with the virtual lab unreleased).** The simulator core, four physics tiers,
-> the chassis, the Qibolab driver and platforms, the Qibosoq-compatible board, the admin channel and the
-> Qibocal technician are implemented and tested. The Qblox and QCoDeS faces are not built yet. See
-> [Limits](#limits).
+> the chassis, the Qibolab driver and platforms, the Qibosoq-compatible board, the native QICK board
+> (Pyro4, tProc v1 and v2), the admin channel, the Qibocal technician and the QCSS Explorer dashboard are
+> implemented and tested. The Qblox and QCoDeS faces are not built yet. See [Limits](#limits).
 
 ## The virtual lab
 
@@ -49,8 +49,10 @@ flowchart LR
 | **Qibolab driver** | `QcssController`, a thin gRPC client subclassing Qibolab's `Controller`. It holds no physics and never writes calibration. | `integrations/qcss_qibolab` (package `qcss-qibolab`) |
 | **Platforms** | Ordinary Qibolab platform folders. `qcss_rfsoc_5q` uses Qibolab's unmodified RFSoC driver, so it differs from a lab's platform only by the board address. | `platforms/qcss_qblox_5q`, `platforms/qcss_rfsoc_5q` |
 | **Board face** | A Qibosoq-compatible TCP server (4-byte length + JSON) on the chassis. | `qcss serve --board-listen`, `src/qcss/boards/qibosoq.py` |
+| **Native QICK face** | A `QickSoc` stand-in served over Pyro4, as `qick.pyro.start_server` serves a real board, so unmodified `qick` programs (tProc v1 averager and v2 asm) run against the chip, with feedback and decimated readout. | `qcss serve --qick-ns host:port`, `src/qcss/boards/qick/` |
 | **Technician** | Runs the real Qibocal (`qq run`, then an atomic install) on a schedule and on request. Its files are the only calibration Quark sees. | `qcss technician`, `src/qcss/technician/` |
 | **Admin channel** | Scenario, mode and fault knobs on a separate address and token. | `qcss admin`, `proto/qcss/admin/v1/admin.proto` |
+| **QCSS Explorer** | An operator dashboard that explains, visualizes and configures every layer, with an embedded virtual lab. It adds nothing to the lab link. | `integrations/qcss_dashboard` ([its README](integrations/qcss_dashboard/README.md)) |
 
 ### Run it
 
@@ -179,9 +181,10 @@ With pip (25.1 or newer for dependency groups): `python -m pip install -e ".[qib
 | --- | --- | --- |
 | `qibolab` | extra | `qibolab==0.2.17`, `qibo` |
 | `qibocal` | extra | `qibocal==0.2.6`, `qibolab==0.2.17`, `qibo` |
+| `qick` | extra | `Pyro4`, `psutil` (the native QICK face; the `qick==0.2.370` client is a manual install) |
 | `adapters` | extra | `qcodes`, `pyvisa`, `pyvisa-sim` (for the planned QCoDeS mirror) |
 | `lab` | group | `qcss-qibolab` (editable, from `integrations/qcss_qibolab`) |
-| `dev` | group | `grpcio-tools`, `pytest`, `pytest-xdist`, `hypothesis`, `anyio`, `cryptography`, `ruff`, `pyright==1.1.414` |
+| `dev` | group | `grpcio-tools`, `pytest`, `pytest-xdist`, `hypothesis`, `anyio`, `cryptography`, `ruff`, `pyright==1.1.414`, `fastapi`, `uvicorn`, `httpx` (the Explorer bridge) |
 <!-- END AUTO-GENERATED -->
 
 ## Quick start without the lab stack
@@ -244,16 +247,17 @@ secret impairments from the device file's `faults:` block.
 > a network bind needs `--insecure`. `scripts/make_dev_cert.py <ip>` makes a self-signed certificate.
 > See [SECURITY.md](SECURITY.md).
 
-**Testing from a second PC?** Follow the step-by-step beginner guide,
-[docs/two-pc-setup-guide.md](docs/two-pc-setup-guide.md). The short engineer version is
-[docs/remote-testing.md](docs/remote-testing.md).
+**Testing from a second PC?** Start the server with a network bind as above, copy `server.pem` to the
+client PC, then run `python scripts/remote_smoke.py --target <ip>:50051 --ca server.pem --token "$QCSS_TOKEN"`
+there. It checks health, the device description, pulse and idle jobs, hardware-rule refusal, calibration
+compare-and-swap, streaming, cancellation and token rejection, and prints one line per step.
 
 ## Command reference
 
 <!-- AUTO-GENERATED from `qcss --help` -->
 | Command | What it does |
 | --- | --- |
-| `qcss serve` | Run the chassis: the instrument link, and optionally the admin channel (`--admin-listen`) and the Qibosoq board face (`--board-listen`). Options: `--state-dir`, `--time-scale` (default 1.0), `--seed` (default entropy), `--deterministic`, `--tier auto\|t0\|t1a\|t1b\|t2`, `--workers`, `--tls-cert/--tls-key`, `--token`, `--admin-token`, `--insecure`, `--debug-reflection`. |
+| `qcss serve` | Run the chassis: the instrument link, and optionally the admin channel (`--admin-listen`), the Qibosoq board face (`--board-listen`) and the native QICK board (`--qick-ns`, `--qick-name`, `--qick-listen`, `--qick-firmware`, `--qick-start-ns`, `--qick-loopback`). Options: `--state-dir`, `--time-scale` (default 1.0), `--seed` (default entropy), `--deterministic`, `--tier auto\|t0\|t1a\|t1b\|t2`, `--workers`, `--tls-cert/--tls-key`, `--token`, `--admin-token`, `--insecure`, `--debug-reflection`. |
 | `qcss admin kill\|revive <q>` | Lose a qubit (decays within ~100 ns, moves 200 MHz) or undo it. |
 | `qcss admin drift <q>` | Step a qubit's frequency (`--df-hz`) and/or T1 (`--t1-factor`); steps accumulate. |
 | `qcss admin tls\|burst <q>` | A TLS defect drifts into resonance, or a cosmic-ray burst hits now. |
@@ -312,16 +316,17 @@ src/qcss/
   timing/              discrete-event engine, instrument-time pacing, host latency, jitter
   runtime/             planner, runner, job manager, calibration store, state persistence
   adapters/            gRPC instrument link, admin server, instrument faults, error mapping
-  boards/              the Qibosoq-compatible board face
+  boards/              the Qibosoq-compatible board face; boards/qick/ is the native QICK face (Pyro4 QickSoc)
   technician/          the Qibocal technician: runcards, schedule, atomic install
   chassis.py           the long-lived instrument process behind `qcss serve`
   client.py            QcssClient for the instrument link
   v1/, admin/v1/       generated protobuf and gRPC code (committed)
   cli.py               serve / admin / technician / remote / run / validate / profile / device
 integrations/qcss_qibolab/   the Qibolab driver (`qcss-qibolab`)
+integrations/qcss_dashboard/ QCSS Explorer: the FastAPI bridge (src/) and the React frontend (web/)
 integrations/quark_qcss/     deprecated Quark-side gRPC driver (removed next release)
 platforms/                   Qibolab platform folders for the virtual lab
-scripts/                     gen_proto, make_platform_parameters, make_dev_cert, remote_smoke
+scripts/                     gen_proto, make_platform_parameters, make_dev_cert, remote_smoke, qick_surface
 tests/                       unit, oracles, cross_tier, integration, virtual_lab
 ```
 
@@ -334,15 +339,16 @@ pyright                             # type check against the lab venv (must repo
 python scripts/gen_proto.py         # regenerate src/qcss/v1 and src/qcss/admin/v1 after editing a .proto file
 ```
 
-<!-- AUTO-GENERATED from `pytest --collect-only` (439 tests) -->
+<!-- AUTO-GENERATED from `pytest --collect-only` (644 tests) -->
 | Directory | Tests | What it proves |
 | --- | --- | --- |
-| `tests/unit/` | 205 | One file per module, plus Hypothesis property tests |
+| `tests/unit/` | 309 | One file per module, plus Hypothesis property tests |
 | `tests/oracles/` | 12 | Rabi, Ramsey, T1, Hahn echo, ZZ, CZ, phase fringes, flux offsets and chevrons against analytic formulas at 5σ |
 | `tests/cross_tier/` | 4 | Tiers agree where their domains overlap |
-| `tests/integration/` | 143 | gRPC end to end, chassis, admin channel, board face, technician, indistinguishability scan |
+| `tests/integration/` | 175 | gRPC end to end, chassis, admin channel, both board faces (Qibosoq and native QICK), technician, indistinguishability scan |
 | `tests/virtual_lab/` | 10 | Acceptance through the path Quark takes: QASM in, Qibolab compile, counts out |
 | `integrations/qcss_qibolab/tests/` | 13 | Translation, platform loading, calibration pinning |
+| `integrations/qcss_dashboard/tests/` | 69 | The Explorer bridge: registry, config store, guarded API, live chassis, experiments, views, CLI |
 | `integrations/quark_qcss/tests/` | 52 | The deprecated driver |
 <!-- END AUTO-GENERATED -->
 

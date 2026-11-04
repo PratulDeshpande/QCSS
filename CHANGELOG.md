@@ -30,6 +30,10 @@ cannot tell it is a simulator.
 * Wall-clock pacing (`--time-scale`): the chip drifts while idle, and jobs take instrument time.
 * Client-resolved sweep points (`Job.program_points`). `ChannelInfo.lo_frequency_hz`. Readout-frame
   frequencies set each point's probe frequency.
+* A native QICK face (`qcss serve --qick-ns host:port`, extra `qick`): a `QickSoc` stand-in served over
+  Pyro4 as `qick.pyro.start_server` serves a real board. Unmodified `qick` programs run against the chip
+  (tProc v1 averager and v2 asm, firmware `zcu216_v2_5q` or `zcu216_v1_5q`), with generators, readouts,
+  decimated acquisition, feedback and optional loopback cables (`--qick-loopback GEN:RO`).
 * `qick_zcu216_5q` profile.
 * Acceptance harness standing in for Quark's Qibolab adapter, and an indistinguishability scan.
 * Acceptance checks through Qibolab, ported from the `quark_qcss` conformance run: x reads 1, idle

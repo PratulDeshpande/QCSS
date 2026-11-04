@@ -12,3 +12,11 @@ updates:
     ignore:
       - dependency-name: protobuf
       - dependency-name: grpcio-tools
+  # The QCSS Explorer frontend (integrations/qcss_dashboard/web).
+  - package-ecosystem: npm
+    directory: /integrations/qcss_dashboard/web
+    schedule:
+      interval: monthly
+    groups:
+      web:
+        patterns: ["*"]
