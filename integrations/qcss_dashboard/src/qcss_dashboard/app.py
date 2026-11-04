@@ -153,6 +153,13 @@ def create_app(config: Settings | None = None) -> FastAPI:
     def diff_config(kind: str, body: JsonBody) -> dict[str, Any]:
         return store.diff(kind, str(body.get("base", "")), str(body.get("yaml", "")))
 
+    @app.post("/api/configs/{kind}/dump")
+    def dump_config(kind: str, body: JsonBody) -> dict[str, Any]:
+        import yaml
+
+        store.list(kind)                                   # validates the kind
+        return {"yaml": yaml.safe_dump(body.get("data") or {}, sort_keys=False, allow_unicode=True, width=120)}
+
     @app.put("/api/configs/{kind}/{name}")
     def save_config(kind: str, name: str, body: JsonBody) -> dict[str, Any]:
         out = store.save(kind, name, str(body.get("yaml", "")))

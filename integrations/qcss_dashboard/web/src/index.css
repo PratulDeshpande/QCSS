@@ -1,0 +1,70 @@
+@import "tailwindcss";
+@import "katex/dist/katex.min.css";
+@import "uplot/dist/uPlot.min.css";
+@import "@xyflow/react/dist/style.css";
+
+/* Roles, not raw hex: the dark values are the validated dark steps of the dataviz reference palette
+   (scripts/validate_palette.js: all checks pass on #1a1a19, adjacent CVD dE 8.4, normal-vision 19.3). */
+:root, :root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111110;
+  --surface-1: #1a1a19;
+  --surface-2: #222220;
+  --surface-3: #2c2c29;
+  --border: #34332f;
+  --text-primary: #f0efec;
+  --text-secondary: #c3c2b7;
+  --text-muted: #8f8e86;
+  --accent: #3987e5;
+  --series-1: #3987e5; --series-2: #d95926; --series-3: #199e70; --series-4: #c98500;
+  --series-5: #d55181; --series-6: #008300; --series-7: #9085e9; --series-8: #e66767;
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --truth: #c98500;
+  --grid: #2a2a27;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f4f3f0;
+  --surface-1: #fcfcfb;
+  --surface-2: #f0efec;
+  --surface-3: #e6e5e1;
+  --border: #d6d5cf;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #77766f;
+  --accent: #2a78d6;
+  --series-1: #2a78d6; --series-2: #eb6834; --series-3: #1baf7a; --series-4: #eda100;
+  --series-5: #e87ba4; --series-6: #008300; --series-7: #6250d6; --series-8: #e34948;
+  --truth: #a86e00;
+  --grid: #e3e2dd;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-s1: var(--surface-1);
+  --color-s2: var(--surface-2);
+  --color-s3: var(--surface-3);
+  --color-line: var(--border);
+  --color-ink: var(--text-primary);
+  --color-ink2: var(--text-secondary);
+  --color-mute: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-truth: var(--truth);
+  --color-good: var(--good);
+  --color-warn: var(--warning);
+  --color-serious: var(--serious);
+  --color-crit: var(--critical);
+  --font-sans: ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Consolas, monospace;
+}
+
+html, body, #root { height: 100%; }
+body { background: var(--bg); color: var(--text-primary); font-family: var(--font-sans); font-size: 13px; }
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+::selection { background: color-mix(in oklab, var(--accent) 40%, transparent); }
+.u-legend { color: var(--text-secondary); font-size: 11px; }
+.u-legend .u-marker { border-radius: 2px; }
+.react-flow__attribution { display: none; }
+.katex { font-size: 1.05em; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }

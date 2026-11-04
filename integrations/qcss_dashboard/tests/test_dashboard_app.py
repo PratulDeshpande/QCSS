@@ -72,3 +72,14 @@ def test_config_errors_are_400_with_a_message(client):
     assert r.status_code == 404
     r = client.put("/api/configs/device/transmon_5q", json={"yaml": "x: 1"}, headers=MUTATE)
     assert r.status_code == 400 and r.json()["detail"]
+
+
+def test_dump_turns_edited_data_back_into_yaml_the_validator_accepts(client):
+    cfg = client.get("/api/configs/device/transmon_5q").json()
+    data = cfg["data"]
+    data["qubits"][0]["t1_us"] = 80.5
+    r = client.post("/api/configs/device/dump", json={"data": data}, headers=MUTATE)
+    assert r.status_code == 200
+    text = r.json()["yaml"]
+    assert "t1_us: 80.5" in text and text.index("device_name") < text.index("qubits")   # field order kept
+    assert client.post("/api/configs/device/validate", json={"yaml": text}, headers=MUTATE).json()["ok"]
