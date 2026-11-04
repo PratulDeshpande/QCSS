@@ -65,6 +65,31 @@ def test_oversized_inputs_are_refused(client):
     assert r.status_code == 400
 
 
+def test_the_get_views_apply_the_same_bounds_as_the_post_views(client):
+    """A GET must not be a way around the POST bounds: hours=1e9 would simulate a billion hours of drift."""
+    assert client.get("/api/views/chip", params={"device": "transmon_5q", "hours": 1e9}).status_code == 400
+    assert client.get("/api/views/readout", params={"device": "transmon_5q", "qubit": 42}).status_code == 400
+    assert client.get("/api/views/readout", params={"device": "transmon_5q", "shots": -5}).status_code == 400
+
+
+def test_an_oversized_sweep_is_refused_before_any_point_is_planned(client, monkeypatch):
+    """The point cap is checked on the job itself, so a million-point sweep costs nothing to refuse."""
+    from google.protobuf import json_format
+
+    from qcss.core.ndarray import to_proto
+    from qcss.v1 import job_pb2
+    from qcss_dashboard import sandbox
+
+    def plan(self, job):
+        raise AssertionError("the job was planned before its size was checked")
+
+    monkeypatch.setattr(sandbox.SimulationContext, "plan", plan)
+    job = job_pb2.Job(sweeps=[job_pb2.Sweep(axis=0, values=to_proto(np.zeros(1000))),
+                              job_pb2.Sweep(axis=1, values=to_proto(np.zeros(1000)))])
+    r = client.post("/api/sandbox/explain", json={"job": json_format.MessageToDict(job)}, headers=MUTATE)
+    assert r.status_code == 400 and "1000000 sweep points" in r.json()["detail"]
+
+
 def test_busy_sandbox_answers_503_instead_of_queueing_forever(client, monkeypatch):
     sem = threading.BoundedSemaphore(1)
     sem.acquire()

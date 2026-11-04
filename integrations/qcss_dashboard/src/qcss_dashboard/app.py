@@ -254,10 +254,8 @@ def create_app(config: Settings | None = None) -> FastAPI:
 
     @app.get("/api/views/chip")
     def chip_get(device: str | None = None, hours: float = 24.0, steps: int = 96, seed: int = 1) -> dict[str, Any]:
-        dev = store.load_device(device or settings.chassis_device)
-        if dev is None:
-            raise ConfigError("the chip view needs a device")
-        return chip_view(dev, hours=hours, steps=min(max(steps, 2), 1000), seed=seed)
+        return chip_post({"device": device or settings.chassis_device, "hours": hours, "steps": steps,  # same bounds
+                          "seed": seed})
 
     @app.post("/api/views/chip")
     def chip_post(body: JsonBody) -> dict[str, Any]:
@@ -270,10 +268,8 @@ def create_app(config: Settings | None = None) -> FastAPI:
     @app.get("/api/views/readout")
     def ro_get(profile: str | None = None, device: str | None = None, qubit: int = 0, shots: int = 300,
                seed: int = 1) -> dict[str, Any]:
-        p, d = _models({"profile": profile, "device": device or settings.chassis_device})
-        if d is None:
-            raise ConfigError("the readout view needs a device")
-        return readout_view(p, d, qubit=qubit, shots=min(shots, 2000), seed=seed)
+        return ro_post({"profile": profile, "device": device or settings.chassis_device, "qubit": qubit,   # same bounds
+                        "shots": shots, "seed": seed})
 
     @app.post("/api/views/readout")
     def ro_post(body: JsonBody) -> dict[str, Any]:

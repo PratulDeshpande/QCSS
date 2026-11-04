@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import itertools
+import math
 import time
 from typing import Any
 
@@ -84,6 +85,17 @@ def _bloch(rho2: np.ndarray) -> list[float]:
     return [float(2 * np.real(rho2[0, 1])), float(-2 * np.imag(rho2[0, 1])), float(np.real(rho2[0, 0] - rho2[1, 1]))]
 
 
+def _point_count(job: job_pb2.Job) -> int:
+    """How many points expand_sweeps would make, read off the job without expanding it: resolved program points,
+    or the grid of sweep axes (sweeps on one axis are zipped, so each axis counts once)."""
+    if job.program_points:
+        return len(job.program_points)
+    lengths: dict[int, int] = {}
+    for s in job.sweeps:
+        lengths.setdefault(s.axis, int(np.asarray(from_proto(s.values)).size))
+    return math.prod(lengths.values())
+
+
 def explain(profile: HardwareProfile, device: DeviceSpec | None, job_json: dict[str, Any], *, tier: str = "AUTO",
             seed: int = 1, shots: int = 200, point: int = 0) -> dict[str, Any]:
     stages: list[dict[str, Any]] = []
@@ -92,6 +104,9 @@ def explain(profile: HardwareProfile, device: DeviceSpec | None, job_json: dict[
     job.num_shots = max(1, min(int(shots), MAX_SHOTS))
     job.requested_tier = TIERS.get(tier.upper(), job_pb2.FIDELITY_TIER_AUTO)
     job.random_seed = seed
+    n_points = _point_count(job)
+    if n_points > MAX_POINTS:      # before planning, which compiles, validates and lifts every point
+        raise ValueError(f"{n_points} sweep points; the sandbox runs at most {MAX_POINTS} per explain run")
     ctx = SimulationContext(profile, device, global_seed=seed)
     try:
         plan = ctx.plan(job)
