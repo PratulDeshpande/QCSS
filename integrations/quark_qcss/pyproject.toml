@@ -8,6 +8,7 @@ version = "0.1.0"
 description = "Quark-QOS HAL (DeviceProvider) and ExecutionDriver for QCSS-compatible superconducting control stacks"
 readme = "README.md"
 license = "Apache-2.0"
+authors = [{ name = "Pratul Deshpande" }]
 requires-python = ">=3.12,<3.14"
 dependencies = [
   "qcss",                         # the generated qcss.v1 stubs and qcss.client

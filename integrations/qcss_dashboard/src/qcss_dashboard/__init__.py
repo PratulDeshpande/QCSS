@@ -5,3 +5,4 @@ code for every number it shows, and never adds anything to the lab link: whateve
 as it was (indistinguishability: the lab link must not reveal it is a simulator).
 """
 __version__ = "0.1.0"
+__author__ = "Pratul Deshpande"

@@ -371,6 +371,19 @@ the chassis itself always defaults to entropy. See [CONTRIBUTING.md](CONTRIBUTIN
   follow one example firmware build.
 - One bearer token per channel; no per-user accounts or mutual TLS.
 
+## Author and citation
+
+QCSS is written and maintained by Pratul Deshpande ([@PratulDeshpande](https://github.com/PratulDeshpande)). If you use it in research or testing, cite it as in [CITATION.cff](CITATION.cff):
+
+```bibtex
+@software{deshpande_qcss,
+  author  = {Deshpande, Pratul},
+  title   = {{QCSS: Quantum Control Stack Simulator}},
+  version = {0.1.0},
+  url     = {https://github.com/PratulDeshpande/QCSS}
+}
+```
+
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

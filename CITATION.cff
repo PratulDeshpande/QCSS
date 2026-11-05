@@ -1,0 +1,10 @@
+cff-version: 1.2.0
+message: "If you use this software in your research or testing, please cite it as below."
+title: "QCSS: Quantum Control Stack Simulator"
+type: software
+authors:
+  - family-names: "Deshpande"
+    given-names: "Pratul"
+repository-code: "https://github.com/PratulDeshpande/QCSS"
+license: "Apache-2.0"
+version: "0.1.0"
