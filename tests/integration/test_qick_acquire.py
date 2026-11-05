@@ -75,8 +75,8 @@ def test_acquire_returns_one_averaged_point_per_readout_in_the_clients_shape(boa
 def test_a_stronger_probe_gives_a_proportionally_larger_signal(board):
     soc, soccfg = board
     a = [np.hypot(*Measure(soccfg, reps=400, final_delay=1.0, cfg={"gain": g, "freq": RO})
-                  .acquire(soc, progress=False)[0][0]) for g in (0.2, 0.8)]
-    assert a[1] / a[0] == pytest.approx(4.0, rel=0.25)
+                  .acquire(soc, progress=False)[0][0]) for g in (0.4, 0.8)]    # at 0.2 vs 0.8 ~1 run in 14 flaked
+    assert a[1] / a[0] == pytest.approx(2.0, rel=0.25)
 
 
 def test_the_resonator_turns_the_phase_as_the_probe_crosses_it(board):
@@ -181,11 +181,11 @@ def test_a_v1_averager_program_acquires_and_its_probe_gain_shows(board_v1):
     soc, soccfg = board_v1
     Measure1, _, _ = _v1_classes()
     a = []
-    for g in (0.2, 0.8):
+    for g in (0.4, 0.8):                  # job noise is fresh each run; at 0.2 vs 0.8 about 1 run in 14 left the band
         avgi, avgq = Measure1(soccfg, {"reps": 400, "gain": g}).acquire(soc, progress=False)
         assert np.shape(avgi) == (1, 1)                                 # v1: (readouts, reads)
         a.append(np.hypot(avgi[0][0], avgq[0][0]))
-    assert a[1] / a[0] == pytest.approx(4.0, rel=0.25)
+    assert a[1] / a[0] == pytest.approx(2.0, rel=0.25)
     assert soc.get_tproc_counter(addr=1) == 400
 
 
