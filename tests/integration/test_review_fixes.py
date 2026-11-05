@@ -111,12 +111,14 @@ async def test_i5_routing_refusals_on_the_lab_link_say_nothing_about_tiers():
     try:
         async with grpc.aio.insecure_channel(addr) as ch:
             with pytest.raises(grpc.aio.AioRpcError) as err:
-                await pbg.ControlServiceStub(ch).SubmitJob(pb.SubmitJobRequest(job=job_pb2.Job(num_shots=1)))
+                # bounded: this test hung for 30 min on the Windows runners, so a stall must fail loudly and say where
+                await pbg.ControlServiceStub(ch).SubmitJob(pb.SubmitJobRequest(job=job_pb2.Job(num_shots=1)), timeout=30)
+        assert err.value.code() == grpc.StatusCode.FAILED_PRECONDITION, err.value
         text = f"{err.value.details()} {err.value.trailing_metadata()}"
         assert not TELLS.search(text), text
     finally:
-        await server.stop(None)
-        await jobs.close()
+        await asyncio.wait_for(server.stop(None), 30)
+        await asyncio.wait_for(jobs.close(), 30)
 
 
 def test_i6_a_bad_or_failing_request_does_not_block_the_shift(tmp_path):
