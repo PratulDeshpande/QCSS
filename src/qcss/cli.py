@@ -433,6 +433,10 @@ def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: st
     tls =(pathlib.Path(tls_cert).read_bytes(), pathlib.Path(tls_key).read_bytes()) if tls_cert and tls_key else None
 
     prof = load_profile(_resolve_profile_path(profile))
+    if board_listen is not None and not any(p.port_id.startswith("dac") for p in prof.ports):
+        # BoardWiring (boards/qibosoq.py) maps the client's dac N onto ports named dacN; any other profile fails late
+        raise click.UsageError(f"--board-listen needs an RFSoC profile whose ports are dacN, such as qick_zcu216_5q "
+                               f"(profile '{profile}' has none)")
     d_path = _resolve_device_path(device)
     dev = load_device(d_path) if d_path else None
     chassis = Chassis(ChassisConfig(

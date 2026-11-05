@@ -64,3 +64,6 @@ desktop.ini
 
 # Local TLS material (private keys must never be committed)
 /certs/
+
+# local-only user docs
+/userdocs/

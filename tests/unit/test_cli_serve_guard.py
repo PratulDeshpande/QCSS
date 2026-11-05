@@ -42,6 +42,13 @@ def test_serve_refuses_a_network_board_bind_without_insecure():
     assert "board" in result.output and "--insecure" in result.output
 
 
+def test_serve_refuses_a_board_face_on_a_profile_without_dac_ports():
+    """The qibosoq board face maps dac N onto ports named dacN: a Qblox profile has none, so say so at start."""
+    result = CliRunner().invoke(app, ["serve", "--board-listen", "127.0.0.1:6000", "--profile", "qblox_cluster_5q"])
+    assert result.exit_code != 0
+    assert "--board-listen needs an RFSoC profile" in result.output and "qblox_cluster_5q" in result.output
+
+
 def test_serve_refuses_a_network_qick_board_without_insecure():
     """Pyro4 has no TLS and no token, so a QICK board on the network needs the operator's explicit consent."""
     result = CliRunner().invoke(app, ["serve", "--qick-ns", "127.0.0.1:8888", "--qick-listen", "0.0.0.0",
