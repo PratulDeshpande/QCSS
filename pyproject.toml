@@ -74,6 +74,7 @@ docs = [
 
 [project.urls]
 Homepage = "https://github.com/PratulDeshpande/qcss"
+Documentation = "https://pratuldeshpande.github.io/QCSS/"
 Repository = "https://github.com/PratulDeshpande/qcss"
 Issues = "https://github.com/PratulDeshpande/qcss/issues"
 Changelog = "https://github.com/PratulDeshpande/qcss/blob/main/CHANGELOG.md"
