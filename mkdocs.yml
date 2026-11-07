@@ -1,0 +1,91 @@
+site_name: QCSS
+site_url: https://pratuldeshpande.github.io/QCSS/
+repo_url: https://github.com/PratulDeshpande/QCSS
+docs_dir: userdocs
+strict: true
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+
+exclude_docs: |
+  build/**
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - search.suggest
+    - content.code.copy
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.tabbed:
+      alternate_style: true
+  - tables
+  - attr_list
+  - md_in_html
+
+nav:
+  - Home: README.md
+  - Architecture: architecture.md
+  - Release Notes: release-notes.md
+  - Quickstart:
+      - Qibolab from a Host: quickstart/qibolab-from-a-host.md
+      - Qibosoq from a Host: quickstart/qibosoq-from-a-host.md
+      - QICK from a Host: quickstart/qick-from-a-host.md
+  - Tutorials:
+      - Tutorial 1 - First Job: tutorials/01-first-job.md
+      - Tutorial 2 - Rabi Experiment: tutorials/02-rabi-experiment.md
+      - Tutorial 3 - Break a Qubit with Admin: tutorials/03-break-a-qubit-with-admin.md
+      - Tutorial 4 - Explorer Tour: tutorials/04-explorer-tour.md
+  - How-to:
+      - Inject Faults: howto/inject-faults.md
+      - LAN with TLS: howto/lan-with-tls.md
+      - Persist Chip State: howto/persist-chip-state.md
+      - Pick a Physics Tier: howto/pick-a-physics-tier.md
+      - Run a Calibration: howto/run-a-calibration.md
+      - Seeded and Deterministic Runs: howto/seeded-and-deterministic-runs.md
+  - Manual:
+      - 00 Overview and Glossary: manual/00-overview-and-glossary.md
+      - 01 Install and Extras: manual/01-install-and-extras.md
+      - 02 Faces: manual/02-faces.md
+      - 03 Hardware Profiles and Devices: manual/03-hardware-profiles-and-devices.md
+      - 04 QPU Physics: manual/04-qpu-physics.md
+      - 05 Runtime Jobs and Calibration: manual/05-runtime-jobs-and-calibration.md
+      - 06 Admin Channel and Faults: manual/06-admin-channel-and-faults.md
+      - 07 Explorer Dashboard: manual/07-explorer-dashboard.md
+      - 08 Security: manual/08-security.md
+      - 09 Known Limits: manual/09-known-limits.md
+  - Reference:
+      - CLI: reference/cli.md
+      - Config Fields: reference/config-fields.md
+      - Environment and Ports: reference/environment-and-ports.md
+      - gRPC and Admin API: reference/grpc-and-admin-api.md
+      - QICK Surface: reference/qick-surface.md
+  - Operations and Security: operations-and-security.md
+  - Troubleshooting: troubleshooting.md
+  - Developer Guide: developer-guide.md

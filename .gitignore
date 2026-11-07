@@ -65,5 +65,8 @@ desktop.ini
 # Local TLS material (private keys must never be committed)
 /certs/
 
+# MkDocs build output
+/site/
+
 # local-only user docs
 /userdocs/
