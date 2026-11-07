@@ -1,0 +1,15 @@
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}
+\node[ext,minimum width=3.4cm] (lab) at (0,2) {Lab client\\ \scriptsize Qibolab, QICK};
+\node[ext,minimum width=3.4cm] (op) at (0,-2) {Operator or CI\\ \scriptsize \texttt{qcss admin}};
+\node[cfg,minimum width=3.6cm] (ll) at (5.4,2) {Lab link\\ \scriptsize token A};
+\node[hid,minimum width=3.6cm] (al) at (5.4,-2) {Admin channel\\ \scriptsize own address, token B};
+\node[sim,minimum width=4.2cm] (jobs) at (11.4,2) {Jobs and calibration\\ \scriptsize what a lab can see};
+\node[hid,minimum width=4.2cm,text width=4cm] (truth) at (11.4,-2) {Chip truth and scenarios\\ \scriptsize kill, drift, TLS, burst, freeze; instrument faults; truth, mode, inspect};
+\draw[flow] (lab) -- (ll);
+\draw[flow] (ll) -- (jobs);
+\draw[flow] (op) -- (al);
+\draw[flow] (al) -- (truth);
+\draw[flow,dashed] (truth) -- node[lbl,right]{changes what jobs measure} (jobs);
+\node[note] at (5.4,0) {two planes, two tokens: the lab link never exposes the admin side};
+\end{tikzpicture}}

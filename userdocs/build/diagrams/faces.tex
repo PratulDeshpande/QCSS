@@ -1,0 +1,18 @@
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}
+\node[ext,minimum width=4.4cm] (c1) at (0,4) {Qibolab platform \texttt{qcss\_qblox\_5q}\\ \scriptsize driver \texttt{QcssController}};
+\node[ext,minimum width=4.4cm] (c2) at (0,2) {Qibolab platform \texttt{qcss\_rfsoc\_5q}\\ \scriptsize Qibolab RFSoC driver (qibosoq client)};
+\node[ext,minimum width=4.4cm] (c3) at (0,0) {QICK program\\ \scriptsize \texttt{qick} 0.2.370 client};
+\node[cfg,minimum width=4.6cm] (f1) at (8.6,4) {Instrument link\\ \scriptsize profile \texttt{qblox\_cluster\_5q}};
+\node[cfg,minimum width=4.6cm] (f2) at (8.6,2) {Board face (e.g. port 6000)\\ \scriptsize profile \texttt{qick\_zcu216\_5q}};
+\node[cfg,minimum width=4.6cm] (f3) at (8.6,0) {QICK face (\texttt{QcssQickSoc})\\ \scriptsize \texttt{qick\_zcu216\_5q}, firmware v2 or v1};
+\node[sim,minimum width=3.2cm,minimum height=4.6cm] (mgr) at (14,2) {Job manager\\ \scriptsize one job at a time\\[2mm] planner\\ $\downarrow$\\ runner\\ $\downarrow$\\ simulated chip};
+\draw[flow] (c1) -- node[lbl,above]{gRPC \texttt{qcss.v1}} (f1);
+\draw[flow] (c2) -- node[lbl,above]{TCP, length + JSON} (f2);
+\draw[flow] (c3) -- node[lbl,above]{Pyro4 via nameserver (e.g. 8888)} (f3);
+\draw[flow] (f1.east) -- (mgr.west |- f1.east);
+\draw[flow] (f2.east) -- (mgr.west);
+\draw[flow] (f3.east) -- (mgr.west |- f3.east);
+\node[note] at (0,-1.2) {unmodified client software};
+\node[note] at (8.6,-1.2) {faces served by \texttt{qcss serve}};
+\end{tikzpicture}}

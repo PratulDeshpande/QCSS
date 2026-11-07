@@ -1,0 +1,28 @@
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}
+\def\w{3.1cm}
+\node[font=\scriptsize\bfseries,anchor=west] at (-1.6,2.2) {Drive port};
+\node[sim,text width=\w] (a1) at (0,1) {NCO + DAC stream at the IF, frame phase (virtual Z)};
+\node[ext,text width=\w] (a2) at (3.9,1) {Client IQ correction (offsets, gain ratio, phase)};
+\node[hid,text width=\w] (a3) at (7.8,1) {Mixer truth: image tone and LO leakage};
+\node[sim,text width=\w] (a4) at (11.7,1) {Rotate into the qubit frame, times the Rabi rate};
+\node[ext,text width=2.4cm] (a5) at (15.2,1) {Drive on the qubit (to the tier)};
+\draw[flow] (a1) -- (a2); \draw[flow] (a2) -- (a3); \draw[flow] (a3) -- (a4); \draw[flow] (a4) -- (a5);
+\node[font=\scriptsize\bfseries,anchor=west] at (-1.6,-0.9) {Flux port};
+\node[sim,text width=\w] (b1) at (0,-2.1) {Flux samples, one continuous stream per port};
+\node[ext,text width=\w] (b2) at (3.9,-2.1) {Client predistortion (inverse IIR filters)};
+\node[hid,text width=\w] (b3) at (7.8,-2.1) {Hidden line response (IIR, several time constants)};
+\node[sim,text width=\w] (b4) at (11.7,-2.1) {Flux pulse seen by the qubit};
+\node[ext,text width=2.4cm] (b5) at (15.2,-2.1) {Qubit frequency shift};
+\draw[flow] (b1) -- (b2); \draw[flow] (b2) -- (b3); \draw[flow] (b3) -- (b4); \draw[flow] (b4) -- (b5);
+\node[font=\scriptsize\bfseries,anchor=west] at (-1.6,-4) {Readout};
+\node[ext,text width=\w] (r1) at (0,-5.2) {Qubit state after the tier};
+\node[hid,text width=\w] (r2) at (3.9,-5.2) {Readout model: physical (T2) or surrogate with a confusion matrix};
+\node[hid,text width=\w] (r3) at (7.8,-5.2) {Assignment errors, I/Q point};
+\node[ext,text width=\w] (r4) at (11.7,-5.2) {Client discriminator or integrator};
+\node[ext,text width=2.4cm] (r5) at (15.2,-5.2) {Labels or I/Q for the client};
+\draw[flow] (r1) -- (r2); \draw[flow] (r2) -- (r3); \draw[flow] (r3) -- (r4); \draw[flow] (r4) -- (r5);
+\node[hid,minimum width=0.6cm,minimum height=0.4cm,label={[font=\scriptsize]right:hidden from clients (the chip's truth)}] at (0,-7) {};
+\node[ext,minimum width=0.6cm,minimum height=0.4cm,label={[font=\scriptsize]right:client side}] at (7,-7) {};
+\node[sim,minimum width=0.6cm,minimum height=0.4cm,label={[font=\scriptsize]right:simulator stage}] at (10.6,-7) {};
+\end{tikzpicture}}

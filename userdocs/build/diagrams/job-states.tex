@@ -1,0 +1,21 @@
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}
+\node[ext,minimum width=3.4cm] (sub) at (-4.4,0) {\texttt{SubmitJob}\\ \scriptsize planner checks the job};
+\node[sim,minimum width=2.6cm] (q) at (0,0) {QUEUED};
+\node[sim,minimum width=2.6cm] (r) at (4.2,0) {RUNNING};
+\node[sim,minimum width=2.8cm] (ok) at (8.6,1.6) {COMPLETED};
+\node[hid,minimum width=2.8cm] (fail) at (8.6,0) {FAILED};
+\node[ext,minimum width=2.8cm] (can) at (8.6,-1.6) {CANCELLED};
+\node[cfg,minimum width=2.8cm] (rej) at (4.2,-2.4) {REJECTED};
+\draw[flow] (sub) -- node[lbl,above]{accepted} (q);
+\draw[flow] (q) -- (r);
+\draw[flow] (r) -- (ok);
+\draw[flow] (r) -- (fail);
+\draw[flow] (r) -- (can);
+\draw[bad,dashed] (q) -- ++(0,-1.5) -- node[lbl,above,sloped,pos=0.35]{epoch went stale} (rej.west);
+\node[ext,minimum width=2.6cm] (cj) at (12.6,-1.6) {\texttt{CancelJob}};
+\draw[flow] (cj) -- (can);
+\node[hid,minimum width=3.4cm] (refused) at (-4.4,-2.4) {Refused: no job id\\ \scriptsize \texttt{INVALID\_ARGUMENT},\\ \texttt{FAILED\_PRECONDITION}};
+\draw[bad] (sub) -- (refused);
+\node[note] at (4.2,-3.4) {The server runs one job at a time; higher priority first, then arrival order.};
+\end{tikzpicture}}

@@ -1,0 +1,12 @@
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}
+\node[ext,minimum width=3.8cm,text width=3.6cm] (br) at (0,0) {Browser\\ \scriptsize web UI: menu of views, status dots, theme, explain depth};
+\node[cfg,minimum width=4.4cm,text width=4.2cm] (bridge) at (6.6,0) {Dashboard bridge\\ \scriptsize \texttt{qcss\_dashboard}, port 8765\\ \scriptsize workspace, audit log, \texttt{--read-only}};
+\node[sim,minimum width=4.2cm,text width=4cm] (emb) at (13.4,1.7) {Embedded chassis\\ \scriptsize default: \texttt{qblox\_cluster\_5q}, fresh random tokens};
+\node[ext,minimum width=4.2cm,text width=4cm] (ext) at (13.4,-1.7) {Existing chassis\\ \scriptsize \texttt{--no-embedded --lab} and \texttt{--admin}};
+\draw[flow,<->] (br) -- node[lbl,above]{HTTP API} (bridge);
+\draw[flow,<->] (bridge) -- node[lbl,above,sloped]{lab + admin} (emb);
+\draw[flow,<->] (bridge) -- node[lbl,above,sloped]{gRPC, \texttt{--ca}} (ext);
+\node[note,text width=4cm] at (0,-1.9) {Network bind needs TLS and a login token, or \texttt{--insecure}};
+\node[note,text width=4cm] at (6.6,-1.9) {Tokens come from the environment, never the command line};
+\end{tikzpicture}}

@@ -1,0 +1,17 @@
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}
+\node[ext,minimum width=3cm] (A) at (0,0) {Client A};
+\node[cfg,minimum width=3.6cm] (S) at (6,0) {Calibration store\\ \scriptsize epoch 5};
+\node[ext,minimum width=3cm] (B) at (12,0) {Client B};
+\foreach \n in {A,S,B} \draw[dashed,black!45] (\n.south) -- ++(0,-8.2);
+\draw[flow] (0,-1.2) -- node[lbl,above]{\texttt{GetCalibration}} (6,-1.2);
+\draw[flow] (6,-2) -- node[lbl,above]{snapshot, epoch 5} (0,-2);
+\draw[flow] (12,-2.9) -- node[lbl,above]{\texttt{GetCalibration}} (6,-2.9);
+\draw[flow] (6,-3.7) -- node[lbl,above]{snapshot, epoch 5} (12,-3.7);
+\draw[flow] (0,-4.8) -- node[lbl,above]{\texttt{UpdateCalibration}, expected epoch 5} (6,-4.8);
+\draw[flow] (6,-5.6) -- node[lbl,above]{accepted: epoch is now 6} (0,-5.6);
+\draw[flow] (12,-6.5) -- node[lbl,above]{\texttt{UpdateCalibration}, expected epoch 5} (6,-6.5);
+\draw[bad] (6,-7.3) -- node[lbl,above,text=red!60!black]{\texttt{FAILED\_PRECONDITION}, \texttt{CALIBRATION\_EPOCH}} (12,-7.3);
+\node[note,text width=3.4cm] at (12,-8.6) {B re-reads the calibration and retries};
+\node[note,text width=3.4cm] at (0,-8.6) {A job pinned to epoch 5 and still queued ends \texttt{REJECTED}};
+\end{tikzpicture}}

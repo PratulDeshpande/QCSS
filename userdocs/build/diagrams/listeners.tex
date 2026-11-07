@@ -1,0 +1,15 @@
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}
+\node[ext,minimum width=4cm] (loc) at (0,2.2) {Client on the same machine\\ \scriptsize loopback};
+\node[ext,minimum width=4cm] (net) at (0,-1.4) {Client on another machine\\ \scriptsize over the network};
+\node[sim,minimum width=8.2cm] (l1) at (8.6,4.4) {Instrument link (gRPC)\\ \scriptsize TLS optional, token optional; a network bind needs both, or \texttt{--insecure}};
+\node[sim,minimum width=8.2cm] (l2) at (8.6,2.2) {Admin channel (gRPC)\\ \scriptsize own address, own token, different from the lab token};
+\node[cfg,minimum width=8.2cm] (l3) at (8.6,0) {Qibosoq board face (TCP + JSON)\\ \scriptsize no TLS, no token: a network bind needs \texttt{--insecure}};
+\node[cfg,minimum width=8.2cm] (l4) at (8.6,-2.2) {Native QICK face (Pyro4)\\ \scriptsize no TLS, no token: a network bind needs \texttt{--insecure}};
+\begin{scope}[on background layer]
+\node[grp, fit=(l1)(l2)(l3)(l4), label={[font=\scriptsize]above:Chassis (\texttt{qcss serve}): every listener binds to loopback by default}] (ch) {};
+\end{scope}
+\draw[flow] (loc.east) -- node[lbl,above,sloped]{always allowed} (loc.east -| ch.west);
+\draw[bad,dashed] (net.east) -- node[lbl,above,sloped,pos=0.6]{see rules} (net.east -| ch.west);
+\node[note,text width=4cm] at (0,-3.4) {Green listeners can use TLS and a token (\texttt{--ca} on the client). Orange ones cannot: use a trusted LAN only.};
+\end{tikzpicture}}

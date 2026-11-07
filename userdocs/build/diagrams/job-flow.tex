@@ -1,0 +1,14 @@
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}
+\node[sim,minimum width=2.7cm] (p1) at (0,0) {1  Plan};
+\node[sim,minimum width=2.7cm] (p2) at (3.6,0) {2  Render};
+\node[sim,minimum width=2.7cm] (p3) at (7.2,0) {3  Evolve};
+\node[sim,minimum width=2.7cm] (p4) at (10.8,0) {4  Read out};
+\node[sim,minimum width=2.7cm] (p5) at (14.4,0) {5  Stream};
+\foreach \i/\t in {1/compile and check\\ against the profile,2/pulses become the\\ drive the qubit feels,3/the tier engine\\ advances the state,4/state becomes a label\\ or an IQ point,5/1024-shot chunks\\ to the client}
+  \node[note] at (\i*3.6-3.6,1.2) {\t};
+\foreach \a/\b in {p1/p2,p2/p3,p3/p4,p4/p5} \draw[flow] (\a) -- (\b);
+\node[hid,minimum width=5.4cm] (ref) at (1.6,-2.2) {Refused before a job id exists\\ \scriptsize \texttt{INVALID\_ARGUMENT} / \texttt{FAILED\_PRECONDITION}};
+\draw[bad] (p1.south) -- ++(0,-0.5) -| ([xshift=-0.9cm]ref.north);
+\node[cfg,minimum width=5.4cm] (rej) at (10.2,-2.2) {Or: job ends \texttt{REJECTED}\\ \scriptsize its calibration epoch went stale while it waited in the queue};
+\end{tikzpicture}}

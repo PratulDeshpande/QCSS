@@ -1,0 +1,22 @@
+\begin{tikzpicture}
+\node[ext,minimum width=5.6cm] (start) at (0,0) {Job + operator's tier policy\\ \scriptsize \texttt{--tier auto|t0|t1a|t1b|t2}};
+\node[dec,text width=5.2cm] (d0) at (0,-2.1) {Did the operator fix a tier?};
+\node[dec,text width=5.2cm] (dA) at (0,-4.5) {Every pulse lifts to a gate, at most 26 qubits, no leakage needed?};
+\node[dec,text width=5.2cm] (dB) at (0,-7) {All Clifford, only Pauli feedback?};
+\node[dec,text width=5.2cm] (dC) at (0,-9.2) {At most 4 qutrits (pulse level)?};
+\node[hid,text width=5.2cm] (ref) at (0,-11.5) {Refused with a reason\\ \scriptsize \texttt{FAILED\_PRECONDITION}, never a silent downgrade};
+\node[sim,text width=4.6cm] (rf) at (8.6,-2.1) {Run on that tier if it can honour the job, else refuse};
+\node[sim,text width=4.6cm] (t1b) at (8.6,-4.5) {T1b statevector};
+\node[sim,text width=4.6cm] (t1a) at (8.6,-7) {T1a Stim};
+\node[sim,text width=4.6cm] (t2) at (8.6,-9.2) {T2 Lindblad (QuTiP)};
+\draw[flow] (start) -- (d0);
+\draw[flow] (d0) -- node[lbl,right]{no (AUTO)} (dA);
+\draw[flow] (dA) -- node[lbl,right]{no} (dB);
+\draw[flow] (dB) -- node[lbl,right]{no} (dC);
+\draw[bad] (dC) -- node[lbl,right]{no} (ref);
+\draw[flow] (d0) -- node[lbl,above]{yes} (rf);
+\draw[flow] (dA) -- node[lbl,above]{yes} (t1b);
+\draw[flow] (dB) -- node[lbl,above]{yes} (t1a);
+\draw[flow] (dC) -- node[lbl,above]{yes} (t2);
+\node[note,text width=4.6cm] at (8.6,-11.5) {T0 runs only when requested.\\ A raw ADC trace forces T2.\\ T3 is not built and is refused.};
+\end{tikzpicture}

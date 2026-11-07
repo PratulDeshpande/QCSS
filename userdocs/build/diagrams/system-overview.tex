@@ -1,0 +1,31 @@
+\resizebox{\linewidth}{!}{%
+\begin{tikzpicture}
+\node[ext,minimum width=3.7cm] (c1) at (0,3) {Qibolab platform\\ \scriptsize \texttt{qcss\_qblox\_5q}};
+\node[ext,minimum width=3.7cm] (c2) at (0,1) {Qibolab RFSoC driver\\ \scriptsize \texttt{qcss\_rfsoc\_5q}};
+\node[ext,minimum width=3.7cm] (c3) at (0,-1) {QICK program\\ \scriptsize \texttt{make\_proxy(...)}};
+\node[ext,minimum width=3.7cm] (tech) at (0,5.2) {Technician\\ \scriptsize \texttt{qcss technician} (Qibocal)};
+\node[cfg,minimum width=3.3cm] (f1) at (5.4,3) {Instrument link\\ \scriptsize gRPC \texttt{qcss.v1}};
+\node[cfg,minimum width=3.3cm] (f2) at (5.4,1) {Board face\\ \scriptsize TCP + JSON};
+\node[cfg,minimum width=3.3cm] (f3) at (5.4,-1) {QICK face\\ \scriptsize Pyro4};
+\node[sim,minimum width=4.1cm] (plan) at (11,2.6) {Plan\\ \scriptsize compile, validate, route a tier};
+\node[sim,minimum width=4.1cm] (run) at (11,0.6) {Run\\ \scriptsize render pulses, physics tier, readout};
+\node[hid,minimum width=4.1cm] (chip) at (11,-1.4) {Chip (hidden truth)\\ \scriptsize drift, defects, faults};
+\node[cfg,minimum width=3.2cm] (cal) at (15.4,2.6) {Calibration store\\ \scriptsize versioned by epoch};
+\node[hid,minimum width=3.2cm] (adm) at (15.4,-1.4) {Admin channel\\ \scriptsize own address + token};
+\node[ext,minimum width=3.2cm] (op) at (15.4,-3.5) {Operator\\ \scriptsize \texttt{qcss admin}, Explorer};
+\begin{scope}[on background layer]
+\node[grp, fit=(plan)(run)(chip)(cal)(adm), label={[font=\scriptsize]above:Chassis (\texttt{qcss serve})}] {};
+\end{scope}
+\draw[flow] (c1) -- (f1);
+\draw[flow] (c2) -- (f2);
+\draw[flow] (c3) -- (f3);
+\draw[flow] (tech.east) -| (f1.north);
+\draw[flow] (f1.east) -- (plan.west);
+\draw[flow] (f2.east) -- (plan.west);
+\draw[flow] (f3.east) -- (plan.west);
+\draw[flow] (plan) -- (run);
+\draw[flow] (run) -- (chip);
+\draw[flow,<->] (plan) -- (cal);
+\draw[flow] (adm) -- (chip);
+\draw[flow] (op) -- (adm);
+\end{tikzpicture}}
