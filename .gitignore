@@ -68,5 +68,5 @@ desktop.ini
 # MkDocs build output
 /site/
 
-# local-only user docs
-/userdocs/
+# PDF / manual build artifacts
+/userdocs/build/
