@@ -129,7 +129,11 @@ class QcssClient:
         return self._call(self._stub.GetJobStatus, pb.GetJobStatusRequest(job_id=job_id)).status
 
     def wait(self, job_id: str, *, poll_s: float = 0.2, timeout_s: float | None = None) -> result_pb2.JobStatus:
-        """Poll until the job reaches a terminal state (COMPLETED, FAILED, CANCELLED or REJECTED)."""
+        """Poll until the job reaches a terminal state (COMPLETED, FAILED, CANCELLED or REJECTED).
+
+        Results wait on the server for results(), up to its per-job retention cap (256 MiB by default). A job
+        that would exceed the cap with nobody reading fails and says so: stream results() while it runs instead.
+        """
         deadline = None if timeout_s is None else time.monotonic() + timeout_s
         while True:
             st = self.status(job_id)

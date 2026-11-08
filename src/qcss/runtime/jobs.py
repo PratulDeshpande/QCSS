@@ -10,7 +10,7 @@ import collections
 import itertools
 import time
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -34,6 +34,10 @@ class ResultsEvictedError(LookupError):
     """The chunks a reader asked for were dropped from the job's replay window (resume from later)."""
 
 
+class _ResultsNotCollected(Exception):
+    """Nobody is taking this job's results and they can no longer be held: the job fails, saying why."""
+
+
 def _now() -> Timestamp:
     ts = Timestamp()
     ts.FromNanoseconds(time.time_ns())
@@ -49,13 +53,16 @@ class _JobRecord:
     finished: asyncio.Event = field(default_factory=asyncio.Event)
     info: Any = None
     # Chunks are kept so a client can reconnect and resume (StreamResults any number of times).
-    # Backpressure: the producer runs at most max_buffered_chunks ahead of the furthest reader.
+    # Backpressure: while a reader is connected the producer runs at most max_buffered_chunks, and at most
+    # the per-job byte cap, ahead of the furthest one. With none connected it does not wait: a client that
+    # waits for the job and then fetches must see it finish, so unread chunks are held up to the byte cap.
     # Memory: once the retained bytes exceed the per-job cap, chunks every reader has passed are
     # dropped from the front; `first` is the absolute index of chunks[0] (sequence number - 1).
     chunks: collections.deque[result_pb2.ResultChunk] = field(default_factory=collections.deque)
     first: int = 0
     retained_bytes: int = 0
     delivered: int = 0                    # absolute count of chunks the furthest reader has taken
+    readers: int = 0                      # results() iterators currently open on this job
     changed: asyncio.Condition = field(default_factory=asyncio.Condition)
     failure: str = ""                     # what went wrong inside the simulator (admin channel only)
 
@@ -64,7 +71,7 @@ class JobManager:
     def __init__(self, runner: Runner, validator: Validator, *,
                  max_buffered_chunks: int = 64, max_concurrent_jobs: int = 2,
                  max_retained_jobs: int = 256, max_retained_bytes_per_job: int = 256 << 20,
-                 expose_diagnostics: bool = True) -> None:
+                 expose_diagnostics: bool = True, reader_stall_timeout_s: float = 300.0) -> None:
         """expose_diagnostics: copy the simulator's tier and noise fidelity into JobStatus. A lab chassis
         turns it off (instruments report neither); the admin channel reads them through info()."""
         self._runner = runner
@@ -77,6 +84,8 @@ class JobManager:
         self._max_buf = max_buffered_chunks
         self._max_jobs = max_retained_jobs
         self._max_bytes = max_retained_bytes_per_job
+        self._stall_s = reader_stall_timeout_s
+        self._wakers: set[asyncio.Task[None]] = set()   # the loop only holds tasks weakly
         self._finished_order: collections.deque[str] = collections.deque()   # oldest finished job first
         self._workers = [asyncio.create_task(self._dispatch_loop()) for _ in range(max_concurrent_jobs)]
 
@@ -121,28 +130,34 @@ class JobManager:
             self._wake(rec)                       # a producer blocked on backpressure re-checks cancel
         return rec.status
 
-    async def results(self, job_id: str, resume_after_sequence: int = 0) -> AsyncIterator[result_pb2.ResultChunk]:
+    async def results(self, job_id: str,
+                      resume_after_sequence: int = 0) -> AsyncGenerator[result_pb2.ResultChunk, None]:
         """The job's chunks with sequence number > resume_after_sequence, then live ones until it finishes.
 
         Raises ResultsEvictedError if some of those chunks were already dropped from the replay window.
         """
         rec = self._jobs[job_id]
         i = resume_after_sequence                 # absolute index of the next chunk (sequence numbers are 1, 2, ...)
-        while True:
-            async with rec.changed:
-                await rec.changed.wait_for(
-                    lambda i=i: i < rec.first + len(rec.chunks) or rec.finished.is_set())
-                if i < rec.first:
-                    raise ResultsEvictedError(f"job {job_id}: chunks up to sequence {rec.first} are no longer "
-                                              f"retained; resume after sequence {rec.first} or later")
-                if i >= rec.first + len(rec.chunks):
-                    return
-                chunk = rec.chunks[i - rec.first]
-                i += 1
-                if i > rec.delivered:
-                    rec.delivered = i
-                    rec.changed.notify_all()
-            yield chunk
+        rec.readers += 1
+        try:
+            while True:
+                async with rec.changed:
+                    await rec.changed.wait_for(
+                        lambda i=i: i < rec.first + len(rec.chunks) or rec.finished.is_set())
+                    if i < rec.first:
+                        raise ResultsEvictedError(f"job {job_id}: chunks up to sequence {rec.first} are no longer "
+                                                  f"retained; resume after sequence {rec.first} or later")
+                    if i >= rec.first + len(rec.chunks):
+                        return
+                    chunk = rec.chunks[i - rec.first]
+                    i += 1
+                    if i > rec.delivered:
+                        rec.delivered = i
+                        rec.changed.notify_all()
+                yield chunk
+        finally:
+            rec.readers -= 1
+            self._wake(rec)                       # a producer waiting on this reader must not wait for nobody
 
     def abort_all(self, reason: str) -> None:
         """Fail every unfinished job, e.g. when the instrument reboots and loses what it was running."""
@@ -151,12 +166,20 @@ class JobManager:
                 rec.cancel.set()
                 self._finish(rec, result_pb2.JOB_STATE_FAILED, reason)
 
-    @staticmethod
-    def _wake(rec: _JobRecord) -> None:
+    def _wake(self, rec: _JobRecord) -> None:
         async def notify() -> None:
             async with rec.changed:
                 rec.changed.notify_all()
-        asyncio.get_running_loop().create_task(notify())
+        task = asyncio.get_running_loop().create_task(notify())
+        self._wakers.add(task)
+        task.add_done_callback(self._wakers.discard)
+
+    def _may_append(self, rec: _JobRecord, size: int) -> bool:
+        ahead = rec.first + len(rec.chunks) - rec.delivered
+        if rec.cancel.is_set() or not rec.readers or ahead <= 0:
+            return True
+        unread = sum(c.ByteSize() for c in itertools.islice(rec.chunks, len(rec.chunks) - ahead, None))
+        return ahead < self._max_buf and unread + size <= self._max_bytes
 
     def _finish(self, rec: _JobRecord, state: result_pb2.JobState, msg: str = "") -> None:
         if rec.finished.is_set():
@@ -165,6 +188,7 @@ class JobManager:
         rec.status.message = msg
         rec.status.finished_at.CopyFrom(_now())
         rec.finished.set()
+        rec.job = job_pb2.Job()                   # a program can be 16 MiB; a finished record only serves results
         self._wake(rec)                           # readers waiting for more chunks see the end
         self._finished_order.append(rec.job_id)
         while len(self._finished_order) > self._max_jobs:
@@ -183,20 +207,29 @@ class JobManager:
             rec.status.started_at.CopyFrom(_now())
             try:
                 async for chunk in self._runner(job_id, rec.job, rec.cancel):
-                    async with rec.changed:       # blocks when every client is slow (backpressure)
-                        await rec.changed.wait_for(
-                            lambda rec=rec: rec.first + len(rec.chunks) - rec.delivered < self._max_buf
-                            or rec.cancel.is_set())
+                    size = chunk.ByteSize()
+                    async with rec.changed:       # blocks while a connected reader is behind (backpressure)
+                        try:
+                            await asyncio.wait_for(rec.changed.wait_for(
+                                lambda rec=rec, size=size: self._may_append(rec, size)), self._stall_s)
+                        except TimeoutError:
+                            raise _ResultsNotCollected(f"result reader stalled for {self._stall_s:g} s") from None
                         if rec.cancel.is_set():
                             break
                         rec.chunks.append(chunk)
-                        rec.retained_bytes += chunk.ByteSize()
+                        rec.retained_bytes += size
                         while rec.retained_bytes > self._max_bytes and rec.first < rec.delivered:
                             rec.retained_bytes -= rec.chunks.popleft().ByteSize()
                             rec.first += 1
+                        if rec.retained_bytes > self._max_bytes and not rec.readers:
+                            raise _ResultsNotCollected(
+                                f"results not collected: over the {self._max_bytes} byte per-job retention cap; "
+                                "read them with StreamResults while the job runs")
                         rec.changed.notify_all()
                 self._finish(rec, result_pb2.JOB_STATE_CANCELLED if rec.cancel.is_set()
                              else result_pb2.JOB_STATE_COMPLETED)
+            except _ResultsNotCollected as exc:
+                self._finish(rec, result_pb2.JOB_STATE_FAILED, str(exc))
             except CalibrationEpochError as exc:  # recalibrated while queued: the client must re-plan
                 self._finish(rec, result_pb2.JOB_STATE_REJECTED, f"CALIBRATION_EPOCH: {exc}")
             except Exception as exc:              # noqa: BLE001
