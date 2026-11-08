@@ -1,5 +1,7 @@
 # Developer guide
 
+**Author & Lead Maintainer:** [Pratul Deshpande](https://github.com/PratulDeshpande) (see [About the Author](about.md))
+
 Setup, ground rules, style and PR checks are in `CONTRIBUTING.md`; this page does not repeat them. It covers the project-specific mechanics.
 
 ## Environments
@@ -52,5 +54,8 @@ Dependabot config: `.github/dependabot.yml` (watches the Explorer's npm packages
 
 ## Local checks before a PR
 `python -m pytest -n 2`, `ruff check .`, `pyright` (in the lab venv), `python scripts/gen_proto.py` if a proto changed. Then update `CHANGELOG.md` `[Unreleased]`.
+
+## Maintainership & Governance
+QCSS is designed and maintained by **Pratul Deshpande**. Contributions, RFCs, bug reports, and profile additions are welcome via pull requests and issues on [GitHub](https://github.com/PratulDeshpande/QCSS).
 
 Sources: CONTRIBUTING.md, pyproject.toml, .github/workflows/ci.yml, scripts/gen_proto.py, scripts/qick_surface.py, scripts/make_platform_parameters.py, src/qcss/config/{profile,device}.py, platforms/qcss_qblox_5q/platform.py, src/qcss/boards/qick/pyro_host.py, CHANGELOG.md.

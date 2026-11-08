@@ -1,10 +1,12 @@
 # QCSS User Manual
 
+*Author: [Pratul Deshpande](https://github.com/PratulDeshpande)*
+
 ## Chapter 0: Overview and glossary
 
 **Audience:** a lab scientist or engineer who is new to this simulator, and possibly new to QICK and Qibolab. Every term is explained where it first appears, and again in the glossary at the end of this chapter.
 
-**How to read this manual.** Chapters 1 to 3 get you installed and tell you what you can plug into the simulator. Chapter 4 explains the physics it simulates. Chapters 5 and 6 explain how it behaves like a lab (jobs, calibration, faults). Chapter 7 is the dashboard. Chapters 8 and 9 are security and limits. For copy-paste walkthroughs see `userdocs/quickstart/`.
+**How to read this manual.** Chapters 1 to 3 get you installed and tell you what you can plug into the simulator. Chapter 4 explains the physics it simulates. Chapters 5 and 6 explain how it behaves like a lab (jobs, calibration, faults). Chapter 7 is the dashboard. Chapters 8 and 9 are security and limits. For copy-paste walkthroughs see the [Quickstart guides](../quickstart/qick-from-a-host.md).
 
 Status: QCSS is alpha software (version 0.1.0). Things marked **Unverified** in this manual were read from code or documentation but not run.
 
