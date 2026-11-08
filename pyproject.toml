@@ -11,6 +11,7 @@ requires-python = ">=3.12,<3.14"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "Pratul Deshpande" }]
+maintainers = [{ name = "Pratul Deshpande" }]
 keywords = ["quantum", "quantum-control", "simulator", "pulse-level", "transmon", "qblox", "grpc", "hardware-in-the-loop"]
 classifiers = [
   "Development Status :: 3 - Alpha",

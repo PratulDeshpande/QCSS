@@ -2,10 +2,11 @@
 
 [![CI](https://github.com/PratulDeshpande/qcss/actions/workflows/ci.yml/badge.svg)](https://github.com/PratulDeshpande/qcss/actions/workflows/ci.yml)
 [![Docs](https://github.com/PratulDeshpande/qcss/actions/workflows/docs.yml/badge.svg)](https://pratuldeshpande.github.io/QCSS/)
+[![Author](https://img.shields.io/badge/author-Pratul%20Deshpande-blue)](https://github.com/PratulDeshpande)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Python 3.12 | 3.13](https://img.shields.io/badge/python-3.12%20%7C%203.13-blue.svg)](pyproject.toml)
 
-📖 **Documentation:** [pratuldeshpande.github.io/QCSS](https://pratuldeshpande.github.io/QCSS/)
+📖 **Documentation:** [pratuldeshpande.github.io/QCSS](https://pratuldeshpande.github.io/QCSS/) &nbsp;|&nbsp; 👤 **Author & Maintainer:** [Pratul Deshpande](https://github.com/PratulDeshpande)
 
 QCSS is a **virtual superconducting-qubit lab**. It stands in for real control electronics (Qblox,
 Zurich Instruments SHFQC+, QICK on an RFSoC) and the chip behind them, so a quantum operating system
