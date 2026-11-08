@@ -1,6 +1,7 @@
 """grpc.aio ControlService with rich status, calibration epochs, health checking, and reflection."""
 from __future__ import annotations
 
+import asyncio
 import hmac
 import inspect
 import logging
@@ -96,7 +97,8 @@ class ControlService(pbg.ControlServiceServicer):
                                   context: ServicerContext) -> pb.GetDevicePropertiesResponse:
         if self.properties is None:
             await context.abort(grpc.StatusCode.UNIMPLEMENTED, "Method not implemented!")
-        return pb.GetDevicePropertiesResponse(properties=self.properties())
+        # thousands of calibration shots: on the event loop this would stall every other RPC
+        return pb.GetDevicePropertiesResponse(properties=await asyncio.to_thread(self.properties))
 
 
 def describe_device(profile, bindings) -> pb.DescribeDeviceResponse:
