@@ -54,7 +54,7 @@ __all__ = ["CalibrationEpochError", "JobInfo", "SimulationContext", "TierRouting
 from qcss.signal.filters import FluxLineModel
 from qcss.signal.mixer import IQCorrection, IQImpairment
 from qcss.signal.port_renderer import DriveChain, FluxChain
-from qcss.signal.predistortion import QbloxRTP
+from qcss.signal.predistortion import PredistortionError, QbloxRTP
 from qcss.timing.instrument_time import InstrumentPacer
 from qcss.v1 import calibration_pb2, device_pb2, job_pb2, result_pb2
 
@@ -171,6 +171,21 @@ class _NullEngine:
         return 0
 
 
+_QUBIT_SETTINGS = ("drive_frequency_hz", "readout_frequency_hz", "pi_amplitude", "drag_beta_samples",
+                   "readout_rotation_rad", "readout_threshold")
+_MIXER_SETTINGS = ("dc_offset_i", "dc_offset_q", "gain_ratio", "phase_skew_rad")
+QBLOX_DEFAULT_FS_HZ = 1e9                         # a qubit with no flux line: only the ranges matter
+
+
+def _predistortion(fp: calibration_pb2.FluxPredistortion, fs_hz: float) -> QbloxRTP:
+    """The predistortion block loaded with these settings, or PredistortionError if it would refuse them."""
+    pre = QbloxRTP(fs_hz)
+    pre.configure([(s.amplitude, s.tau_s) for s in fp.exponential if s.enabled],
+                  fp.inverse_highpass_tau_s if fp.HasField("inverse_highpass_tau_s") else None,
+                  np.asarray(fp.fir_coefficients) if len(fp.fir_coefficients) else None)
+    return pre
+
+
 class SimulationContext:
     def __init__(self, profile: HardwareProfile, device: DeviceSpec | None = None, timebase: TimeBase | None = None,
                  calibration: CalibrationStore | None = None, global_seed: int = 0, *,
@@ -193,6 +208,7 @@ class SimulationContext:
                     for cid, b in self.bindings.items() if b.kind is ChannelKind.READOUT}
         self.qdef = self._qubit_defaults()
         self.calibration = calibration if calibration is not None else CalibrationStore(self.default_calibration())
+        self.calibration.check = self._check_calibration
         self._device_state = (DeviceState(device, stream(global_seed, 0, Domain.DRIFT)) if device is not None else None)
         if time_scale < 0:
             raise ValueError("time_scale must be >= 0")
@@ -261,6 +277,26 @@ class SimulationContext:
             if ro is not None:
                 qc.readout_delay_ticks = self.tof[ro.channel_id]
         return snap
+
+    def _check_calibration(self, snapshot: calibration_pb2.CalibrationSnapshot) -> list[tuple[str, str]]:
+        """What the instrument would refuse to load: stored, it would fail every job that follows."""
+        bad: list[tuple[str, str]] = []
+        flux_fs = {b.qubits[0]: float(self.tb.tick_hz / self.ticks_per_sample[b.generator_id])
+                   for b in self.bindings.values() if b.kind is ChannelKind.FLUX}
+        for i, qc in enumerate(snapshot.qubits):
+            path = f"snapshot.qubits[{i}]"
+            if qc.qubit_index not in self.qdef:
+                bad.append((f"{path}.qubit_index", f"qubit {qc.qubit_index} is not on this device"))
+            settings = [("", qc, _QUBIT_SETTINGS)]
+            settings += [(f"{m}.", getattr(qc, m), _MIXER_SETTINGS) for m in ("drive_mixer", "readout_mixer")]
+            bad += [(f"{path}.{prefix}{name}", "must be finite") for prefix, msg, names in settings for name in names
+                    if not np.isfinite(getattr(msg, name))]
+            if qc.HasField("flux_predistortion"):
+                try:
+                    _predistortion(qc.flux_predistortion, flux_fs.get(qc.qubit_index, QBLOX_DEFAULT_FS_HZ))
+                except PredistortionError as err:
+                    bad.append((f"{path}.flux_predistortion", str(err)))
+        return bad
 
     def _qcal(self, snap: calibration_pb2.CalibrationSnapshot, q: int) -> Any:
         return next((c for c in snap.qubits if c.qubit_index == q), None)
@@ -501,11 +537,7 @@ class SimulationContext:
                         truth = FluxLineModel(fs, list(fl.exp_terms), bias_tee_tau_s=fl.bias_tee_tau_s)
                 qc = self._qcal(snap, q)
                 if qc is not None and qc.HasField("flux_predistortion"):
-                    fp = qc.flux_predistortion
-                    pre = QbloxRTP(fs)
-                    pre.configure([(s.amplitude, s.tau_s) for s in fp.exponential if s.enabled],
-                                  fp.inverse_highpass_tau_s if fp.HasField("inverse_highpass_tau_s") else None,
-                                  np.asarray(fp.fir_coefficients) if len(fp.fir_coefficients) else None)
+                    pre = _predistortion(qc.flux_predistortion, fs)
                 flux_chains[b.port_id] = FluxChain(truth, pre)
 
         readout, adc = {}, {}

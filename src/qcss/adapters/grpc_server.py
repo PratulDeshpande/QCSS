@@ -38,6 +38,15 @@ class ControlService(pbg.ControlServiceServicer):
         self.calibration = calibration if calibration is not None else CalibrationStore()
         self.properties = properties
 
+    async def _abort_unexpected(self, context: ServicerContext, rpc: str, err: Exception) -> NoReturn:
+        """Bad input no validator named is the client's fault; anything else is ours. A lab chassis says neither why."""
+        if isinstance(err, ValueError | LookupError):
+            log.warning("%s: invalid request: %s", rpc, err)
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(err)[:1000] if self.jobs.expose_diagnostics
+                                else "the request is not valid for this instrument")
+        log.error("%s failed", rpc, exc_info=err)
+        await context.abort(grpc.StatusCode.INTERNAL, "instrument error")
+
     async def SubmitJob(self, request: pb.SubmitJobRequest, context: ServicerContext) -> pb.SubmitJobResponse:
         try:
             job_id = await self.jobs.submit(request.job)
@@ -54,6 +63,8 @@ class ControlService(pbg.ControlServiceServicer):
                 await context.abort_with_status(failed_precondition_status(
                     "INSTRUMENT_RESOURCES", "job", "the sequence exceeds the instrument's resources"))
             await context.abort_with_status(failed_precondition_status("FIDELITY_TIER", "job.requested_tier", str(err)))
+        except Exception as err:                            # noqa: BLE001
+            await self._abort_unexpected(context, "SubmitJob", err)
 
     async def GetJobStatus(self, request: pb.GetJobStatusRequest, context: ServicerContext) -> pb.GetJobStatusResponse:
         try:
@@ -86,8 +97,12 @@ class ControlService(pbg.ControlServiceServicer):
         try:
             return pb.UpdateCalibrationResponse(new_epoch=self.calibration.update(request.snapshot,
                                                                                   request.expected_epoch))
+        except HardwareValidationError as err:
+            await context.abort_with_status(invalid_argument_status(err))
         except CalibrationEpochError as err:
             await context.abort_with_status(failed_precondition_status("CALIBRATION_EPOCH", "expected_epoch", str(err)))
+        except Exception as err:                            # noqa: BLE001
+            await self._abort_unexpected(context, "UpdateCalibration", err)
 
     async def DescribeDevice(self, request: pb.DescribeDeviceRequest,
                              context: ServicerContext) -> pb.DescribeDeviceResponse:

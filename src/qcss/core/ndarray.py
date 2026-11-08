@@ -31,6 +31,8 @@ def to_proto(a: np.ndarray) -> cpb.NdArray:
 def from_proto(m: cpb.NdArray) -> np.ndarray:
     if m.element_type == cpb.ELEMENT_TYPE_UNSPECIFIED:
         raise ValueError("NdArray.element_type is UNSPECIFIED")
-    dt = _TO_NP[m.element_type]
+    dt = _TO_NP.get(m.element_type)
+    if dt is None:                                  # proto3 enums are open: a client can send any number
+        raise ValueError(f"NdArray.element_type {m.element_type} is not supported")
     arr = np.frombuffer(m.data, dtype=dt)
     return arr.reshape(tuple(m.shape)) if len(m.shape) else arr
