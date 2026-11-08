@@ -14,6 +14,12 @@ def cli_runner():
     return CliRunner()
 
 
+def test_cli_version(cli_runner):
+    result = cli_runner.invoke(app, ["--version"])
+    assert result.exit_code == 0
+    assert "Pratul Deshpande" in result.output
+
+
 def test_cli_help(cli_runner):
     result = cli_runner.invoke(app, ["--help"])
     assert result.exit_code == 0

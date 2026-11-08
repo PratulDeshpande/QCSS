@@ -84,7 +84,7 @@ def _load_job_file(job_path: str) -> job_pb2.Job:
 
 
 @click.group()
-@click.version_option(version="0.1.0", prog_name="qcss")
+@click.version_option(version="0.1.0", prog_name="qcss", message="%(prog)s %(version)s by Pratul Deshpande")
 def app():
     """QCSS: Hardware-in-the-loop Quantum Control Stack Simulator."""
 
@@ -390,8 +390,10 @@ def _check_qick_options(qick_ns: str | None, qick_listen: str, start_ns: bool, i
               help="The QICK board's proxy name in the nameserver (make_proxy's proxy_name)")
 @click.option("--qick-listen", default="127.0.0.1", show_default=True,
               help="host[:port] the QICK board's Pyro4 daemon binds; clients connect here after the lookup")
-@click.option("--qick-firmware", type=click.Choice(["zcu216_v2_5q", "zcu216_v1_5q"]), default="zcu216_v2_5q",
-              show_default=True, help="The firmware the QICK board runs: tProc v2 or v1")
+@click.option("--qick-firmware",
+              type=click.Choice(["zcu216_v2_5q", "zcu216_v1_5q", "zcu111_v2_5q", "zcu111_v1_5q"]),
+              default="zcu216_v2_5q", show_default=True,
+              help="The firmware the QICK board runs: ZCU216 or ZCU111, tProc v2 or v1")
 @click.option("--qick-start-ns", is_flag=True, help="Also run the Pyro4 nameserver at --qick-ns in this process")
 @click.option("--qick-loopback", "qick_loopback", multiple=True, metavar="GEN:RO",
               help="Wire a bench test cable from generator GEN to readout RO's ADC (repeatable), as QICK's first "
@@ -435,8 +437,8 @@ def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: st
     prof = load_profile(_resolve_profile_path(profile))
     if board_listen is not None and not any(p.port_id.startswith("dac") for p in prof.ports):
         # BoardWiring (boards/qibosoq.py) maps the client's dac N onto ports named dacN; any other profile fails late
-        raise click.UsageError(f"--board-listen needs an RFSoC profile whose ports are dacN, such as qick_zcu216_5q "
-                               f"(profile '{profile}' has none)")
+        raise click.UsageError(f"--board-listen needs an RFSoC profile whose ports are dacN, such as qick_zcu216_5q or "
+                               f"qick_zcu111_5q (profile '{profile}' has none)")
     d_path = _resolve_device_path(device)
     dev = load_device(d_path) if d_path else None
     chassis = Chassis(ChassisConfig(
