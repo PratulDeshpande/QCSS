@@ -1,5 +1,7 @@
 site_name: QCSS
 site_url: https://pratuldeshpande.github.io/QCSS/
+site_author: Pratul Deshpande
+copyright: "Copyright &copy; 2026 Pratul Deshpande"
 repo_url: https://github.com/PratulDeshpande/QCSS
 docs_dir: userdocs
 strict: true
@@ -89,3 +91,10 @@ nav:
   - Operations and Security: operations-and-security.md
   - Troubleshooting: troubleshooting.md
   - Developer Guide: developer-guide.md
+  - About the Author: about.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/PratulDeshpande
+      name: Pratul Deshpande on GitHub
