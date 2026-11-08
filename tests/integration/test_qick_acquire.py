@@ -25,6 +25,7 @@ from qcss.chassis import Chassis, ChassisConfig
 from qcss.config.loader import load_device, load_profile
 
 RO, MUX = 7150.0, 10
+RELAX_US = 300.0                          # ~5 T1 of the 5-qubit device (T1 52-70 us): the qubit relaxes between shots
 
 
 def _free_port() -> int:
@@ -74,8 +75,10 @@ def test_acquire_returns_one_averaged_point_per_readout_in_the_clients_shape(boa
 
 def test_a_stronger_probe_gives_a_proportionally_larger_signal(board):
     soc, soccfg = board
-    a = [np.hypot(*Measure(soccfg, reps=400, final_delay=1.0, cfg={"gain": g, "freq": RO})
-                  .acquire(soc, progress=False)[0][0]) for g in (0.4, 0.8)]    # at 0.2 vs 0.8 ~1 run in 14 flaked
+    # The qubit is not reset between shots (as on hardware), so with a 1 us gap a thermal excitation (T1 ~ 65 us)
+    # stays for tens of shots and a run of |1> readouts moves the mean by 10-30 %. Five T1 apart, shots are independent.
+    a = [np.hypot(*Measure(soccfg, reps=400, final_delay=RELAX_US, cfg={"gain": g, "freq": RO})
+                  .acquire(soc, progress=False)[0][0]) for g in (0.4, 0.8)]
     assert a[1] / a[0] == pytest.approx(2.0, rel=0.25)
 
 
@@ -141,7 +144,7 @@ def _v1_classes():
 
         def body(self):
             self.measure(pulse_ch=MUX, adcs=[0], adc_trig_offset=self.us2cycles(0.3), wait=True,
-                         syncdelay=self.us2cycles(1))
+                         syncdelay=self.us2cycles(RELAX_US))
 
     class Rabi1(RAveragerProgram):
         def initialize(self):
@@ -181,7 +184,7 @@ def test_a_v1_averager_program_acquires_and_its_probe_gain_shows(board_v1):
     soc, soccfg = board_v1
     Measure1, _, _ = _v1_classes()
     a = []
-    for g in (0.4, 0.8):                  # job noise is fresh each run; at 0.2 vs 0.8 about 1 run in 14 left the band
+    for g in (0.4, 0.8):                  # shots are RELAX_US apart (see the v2 twin), so a thermal |1> run cannot skew the mean
         avgi, avgq = Measure1(soccfg, {"reps": 400, "gain": g}).acquire(soc, progress=False)
         assert np.shape(avgi) == (1, 1)                                 # v1: (readouts, reads)
         a.append(np.hypot(avgi[0][0], avgq[0][0]))
