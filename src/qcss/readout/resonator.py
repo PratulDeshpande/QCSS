@@ -13,6 +13,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from qcss.core.limits import check_record
+
 
 @dataclass(frozen=True)
 class ResonatorParams:
@@ -54,6 +56,7 @@ class DispersiveReadout:
         `base` = precomputed mean fields per level for this drive (shape (levels, len(drive))).
         """
         p, n = self.p, len(drive)
+        check_record(len(levels0), n + p.tof_samples)
         if base is None:
             base = np.stack([self.mean_field(m, drive) for m in range(len(p.pulls_rad_ns))])
         alpha = base[levels0].copy()

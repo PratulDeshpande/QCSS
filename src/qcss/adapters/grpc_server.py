@@ -15,7 +15,7 @@ from qcss.adapters.instrument_faults import InstrumentFaultInterceptor, Instrume
 from qcss.core.errors import HardwareValidationError, TierRoutingError
 from qcss.core.net import is_local_address
 from qcss.runtime.calibration_store import CalibrationEpochError, CalibrationStore
-from qcss.runtime.jobs import JobManager, ResultsEvictedError
+from qcss.runtime.jobs import JobManager, JobQueueFullError, ResultsEvictedError
 from qcss.v1 import control_service_pb2 as pb
 from qcss.v1 import control_service_pb2_grpc as pbg
 from qcss.v1 import device_pb2
@@ -63,6 +63,8 @@ class ControlService(pbg.ControlServiceServicer):
                 await context.abort_with_status(failed_precondition_status(
                     "INSTRUMENT_RESOURCES", "job", "the sequence exceeds the instrument's resources"))
             await context.abort_with_status(failed_precondition_status("FIDELITY_TIER", "job.requested_tier", str(err)))
+        except JobQueueFullError as err:
+            await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, str(err))
         except Exception as err:                            # noqa: BLE001
             await self._abort_unexpected(context, "SubmitJob", err)
 
@@ -211,6 +213,7 @@ async def serve(
     """
     device_desc = device if device is not None else pb.DescribeDeviceResponse()
     server = grpc.aio.server(
+        maximum_concurrent_rpcs=256,                    # past this, calls get RESOURCE_EXHAUSTED rather than pile up
         interceptors=[BearerTokenInterceptor(token)] + ([InstrumentFaultInterceptor(faults)] if faults else []),
         options=[
             ("grpc.max_send_message_length", 16 << 20),

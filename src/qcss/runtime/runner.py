@@ -51,6 +51,7 @@ from qcss.runtime.calibration_store import CalibrationEpochError, CalibrationSto
 
 __all__ = ["CalibrationEpochError", "JobInfo", "SimulationContext", "TierRoutingError",
            "create_simulation_runner", "create_simulation_validator"]
+from qcss.core.limits import MAX_READOUT_BYTES, MAX_SHOTS_PER_POINT, readout_bytes
 from qcss.signal.filters import FluxLineModel
 from qcss.signal.mixer import IQCorrection, IQImpairment
 from qcss.signal.port_renderer import DriveChain, FluxChain
@@ -402,6 +403,19 @@ class SimulationContext:
         return frame_if_from_bindings(self.bindings, self.profile, by_frame)
 
     # ------------------------------------------------------------------ planning
+    def _over_capture_memory(self, prog: Any, num_shots: int) -> list[tuple[str, str]]:
+        """Acquisitions too long to simulate on this host, however well they fit the hardware's own limit."""
+        bad: list[tuple[str, str]] = []
+        for op in _all_ops(prog.ops):
+            b = self.bindings.get(op.channel_id) if isinstance(op, Acquire) else None
+            if b is None or b.generator_id not in self.ticks_per_sample:
+                continue
+            samples = op.integration // self.ticks_per_sample[b.generator_id]
+            shots = max(3 * SurrogateReadout.CAL_SHOTS, num_shots if op.mode == "raw_trace" else 0)
+            if readout_bytes(shots, samples) > MAX_READOUT_BYTES:
+                bad.append((op.path, "needs more capture memory than the instrument has"))
+        return bad
+
     def plan(self, job: job_pb2.Job) -> JobPlan:
         snap, os_set = self.calibration.pin()
         if job.HasField("expected_calibration_epoch") and job.expected_calibration_epoch != snap.calibration_epoch:
@@ -409,6 +423,8 @@ class SimulationContext:
                                         f"current is {snap.calibration_epoch}")
         if job.num_shots == 0:
             raise HardwareValidationError([("job.num_shots", "must be > 0")])
+        if job.num_shots > MAX_SHOTS_PER_POINT:
+            raise HardwareValidationError([("job.num_shots", f"at most {MAX_SHOTS_PER_POINT} per sweep point")])
         points: list[PlannedPoint] = []
         violations: list[tuple[str, str]] = []
         warnings: list[str] = []
@@ -424,6 +440,7 @@ class SimulationContext:
             prog, probe = _split_probe_frequencies(prog, self.profile)
             rep = validator.validate(prog, wf_lib)
             violations.extend((prefix + p, d) for p, d in rep.violations)
+            violations.extend((prefix + p, d) for p, d in self._over_capture_memory(prog, job.num_shots))
             warnings.extend(prefix + w for w in rep.warnings)
             points.append(PlannedPoint(pt.indices, pt.job, prog, wf_lib, probe))
         if violations:

@@ -16,6 +16,7 @@ from typing import Any
 
 from google.protobuf.timestamp_pb2 import Timestamp
 
+from qcss.core.errors import QCSSError
 from qcss.runtime.calibration_store import CalibrationEpochError
 from qcss.v1 import job_pb2, result_pb2
 
@@ -32,6 +33,10 @@ INSTRUMENT_FAULT = "execution failed: instrument fault"
 
 class ResultsEvictedError(LookupError):
     """The chunks a reader asked for were dropped from the job's replay window (resume from later)."""
+
+
+class JobQueueFullError(QCSSError):
+    """Too many jobs are already waiting for the instrument."""
 
 
 class _ResultsNotCollected(Exception):
@@ -71,7 +76,8 @@ class JobManager:
     def __init__(self, runner: Runner, validator: Validator, *,
                  max_buffered_chunks: int = 64, max_concurrent_jobs: int = 2,
                  max_retained_jobs: int = 256, max_retained_bytes_per_job: int = 256 << 20,
-                 expose_diagnostics: bool = True, reader_stall_timeout_s: float = 300.0) -> None:
+                 expose_diagnostics: bool = True, reader_stall_timeout_s: float = 300.0,
+                 max_pending: int = 256) -> None:
         """expose_diagnostics: copy the simulator's tier and noise fidelity into JobStatus. A lab chassis
         turns it off (instruments report neither); the admin channel reads them through info()."""
         self._runner = runner
@@ -85,11 +91,14 @@ class JobManager:
         self._max_jobs = max_retained_jobs
         self._max_bytes = max_retained_bytes_per_job
         self._stall_s = reader_stall_timeout_s
+        self._max_pending = max_pending
         self._wakers: set[asyncio.Task[None]] = set()   # the loop only holds tasks weakly
         self._finished_order: collections.deque[str] = collections.deque()   # oldest finished job first
         self._workers = [asyncio.create_task(self._dispatch_loop()) for _ in range(max_concurrent_jobs)]
 
     async def submit(self, job: job_pb2.Job) -> str:
+        if sum(r.status.state == result_pb2.JOB_STATE_QUEUED for r in self._jobs.values()) >= self._max_pending:
+            raise JobQueueFullError(f"{self._max_pending} jobs are already waiting")
         info = await self._validator(job)         # raises -> INVALID_ARGUMENT / FAILED_PRECONDITION
         job_id = uuid.uuid4().hex
         st = result_pb2.JobStatus(job_id=job_id, state=result_pb2.JOB_STATE_QUEUED, submitted_at=_now())
