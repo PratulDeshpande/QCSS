@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import importlib.util
 import json
 import pathlib
+import signal
 import sys
 import time
 from typing import Any
@@ -441,12 +443,15 @@ def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: st
                                f"qick_zcu111_5q (profile '{profile}' has none)")
     d_path = _resolve_device_path(device)
     dev = load_device(d_path) if d_path else None
-    chassis = Chassis(ChassisConfig(
-        profile=prof, device=dev, lab_address=addr, admin_address=admin_listen, tls=tls, token=token,
-        admin_token=admin_token, state_dir=pathlib.Path(state_dir) if state_dir else None, seed=seed,
-        time_scale=time_scale, deterministic=deterministic, tier=tier.upper(), workers=workers,
-        reflection=debug_reflection, board_address=board_listen, qick_ns=qick_ns, qick_name=qick_name,
-        qick_listen=qick_listen, qick_firmware=qick_firmware, qick_start_ns=qick_start_ns, qick_loopback=cables))
+    try:
+        chassis = Chassis(ChassisConfig(
+            profile=prof, device=dev, lab_address=addr, admin_address=admin_listen, tls=tls, token=token,
+            admin_token=admin_token, state_dir=pathlib.Path(state_dir) if state_dir else None, seed=seed,
+            time_scale=time_scale, deterministic=deterministic, tier=tier.upper(), workers=workers,
+            reflection=debug_reflection, board_address=board_listen, qick_ns=qick_ns, qick_name=qick_name,
+            qick_listen=qick_listen, qick_firmware=qick_firmware, qick_start_ns=qick_start_ns, qick_loopback=cables))
+    except ValueError as err:                       # a saved state that cannot be restored, for one
+        raise click.ClickException(str(err)) from None
 
     security = ("TLS" if tls else "plaintext") + (", token required" if token else ", no token")
     click.echo(f"Starting QCSS ControlService on {addr} ({security}) with profile '{prof.profile_name}'...")
@@ -454,6 +459,10 @@ def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: st
         click.echo(f"Restored the chip from {chassis.state_path}.")
 
     async def run_server():
+        task = asyncio.current_task()
+        assert task is not None
+        with contextlib.suppress(NotImplementedError):  # no asyncio signal handlers on Windows, where Ctrl+C still works
+            asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, task.cancel)
         await chassis.start()
         click.secho(f"QCSS ControlService listening on {addr}. Press Ctrl+C to terminate.", fg="green")
         if admin_listen is not None:
@@ -469,7 +478,7 @@ def serve_cmd(host: str, port: int, listen: str | None, profile: str, device: st
 
     try:
         asyncio.run(run_server())
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, asyncio.CancelledError):
         click.echo("\nServer terminated by user.")
 
 

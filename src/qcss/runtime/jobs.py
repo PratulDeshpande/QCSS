@@ -10,7 +10,7 @@ import collections
 import itertools
 import time
 import uuid
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -21,7 +21,7 @@ from qcss.runtime.calibration_store import CalibrationEpochError
 from qcss.v1 import job_pb2, result_pb2
 
 # Runner signature: yields ResultChunk objects and checks cancel event between chunks.
-Runner = Callable[[str, job_pb2.Job, asyncio.Event], AsyncIterator[result_pb2.ResultChunk]]
+Runner = Callable[[str, job_pb2.Job, asyncio.Event], AsyncGenerator[result_pb2.ResultChunk, None]]
 # Validator: raises HardwareValidationError / TierRoutingError / CalibrationEpochError, and may return an
 # info object with tier_used, noise_fidelity and calibration_epoch for the job status.
 Validator = Callable[[job_pb2.Job], Awaitable[Any]]
@@ -214,8 +214,9 @@ class JobManager:
                 continue
             rec.status.state = result_pb2.JOB_STATE_RUNNING
             rec.status.started_at.CopyFrom(_now())
+            stream = self._runner(job_id, rec.job, rec.cancel)
             try:
-                async for chunk in self._runner(job_id, rec.job, rec.cancel):
+                async for chunk in stream:
                     size = chunk.ByteSize()
                     async with rec.changed:       # blocks while a connected reader is behind (backpressure)
                         try:
@@ -237,6 +238,9 @@ class JobManager:
                         rec.changed.notify_all()
                 self._finish(rec, result_pb2.JOB_STATE_CANCELLED if rec.cancel.is_set()
                              else result_pb2.JOB_STATE_COMPLETED)
+            except asyncio.CancelledError:        # the manager is closing: nobody would ever finish this job
+                self._finish(rec, result_pb2.JOB_STATE_FAILED, "the instrument shut down")
+                raise
             except _ResultsNotCollected as exc:
                 self._finish(rec, result_pb2.JOB_STATE_FAILED, str(exc))
             except CalibrationEpochError as exc:  # recalibrated while queued: the client must re-plan
@@ -244,6 +248,8 @@ class JobManager:
             except Exception as exc:              # noqa: BLE001
                 rec.failure = repr(exc)
                 self._finish(rec, result_pb2.JOB_STATE_FAILED, rec.failure if self._expose else INSTRUMENT_FAULT)
+            finally:
+                await stream.aclose()
 
     async def close(self) -> None:
         for w in self._workers:

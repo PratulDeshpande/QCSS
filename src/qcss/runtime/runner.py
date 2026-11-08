@@ -19,7 +19,8 @@ import pickle
 import tempfile
 import threading
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -773,12 +774,13 @@ def create_simulation_runner(profile: HardwareProfile, device: DeviceSpec | None
     workers > 0: a persistent spawn process pool (Windows-safe, one BLAS thread per worker).
     pacer: make each job take its upload latency plus its lab time in wall time, as on an instrument."""
     ctx = context if context is not None else SimulationContext(profile, device, timebase, global_seed=global_seed)
-    pool: concurrent.futures.ProcessPoolExecutor | None = None
-    if workers > 0:
-        pool = concurrent.futures.ProcessPoolExecutor(max_workers=workers, initializer=_worker_init,
+    def new_pool() -> concurrent.futures.ProcessPoolExecutor:
+        return concurrent.futures.ProcessPoolExecutor(max_workers=workers, initializer=_worker_init,
                                                       mp_context=multiprocessing.get_context("spawn"))
+    pool = new_pool() if workers > 0 else None
 
     async def run_chunk(plan: JobPlan, args: tuple) -> dict:
+        nonlocal pool
         if pool is None:
             return await asyncio.to_thread(ctx.simulate_chunk, plan, *args)
         snap = ctx.calibration.snapshot()
@@ -786,9 +788,15 @@ def create_simulation_runner(profile: HardwareProfile, device: DeviceSpec | None
                                 snap.SerializeToString(), sorted(ctx.calibration.os_set()), ctx.global_seed))
         blob = pickle.dumps((ctx_key, profile, device, snap.SerializeToString(), sorted(ctx.calibration.os_set()),
                              ctx.global_seed, (plan, *args)))
-        return await asyncio.get_running_loop().run_in_executor(pool, _worker_chunk, blob)
+        try:
+            return await asyncio.get_running_loop().run_in_executor(pool, _worker_chunk, blob)
+        except BrokenProcessPool:                 # a worker died (out of memory, say): this job fails, the next runs
+            pool.shutdown(wait=False)
+            pool = runner.pool = new_pool()       # type: ignore[attr-defined]
+            raise
 
-    async def runner(job_id: str, job: job_pb2.Job, cancel: asyncio.Event) -> AsyncIterator[result_pb2.ResultChunk]:
+    async def runner(job_id: str, job: job_pb2.Job,
+                     cancel: asyncio.Event) -> AsyncGenerator[result_pb2.ResultChunk, None]:
         plan = await asyncio.to_thread(ctx.plan, job)
         key = job_key(job.random_seed if ctx.honour_job_seed and job.HasField("random_seed") else None, job_id)
         num_shots = int(job.num_shots)

@@ -197,6 +197,15 @@ def _deny(handler: grpc.RpcMethodHandler) -> grpc.RpcMethodHandler:
     return grpc.stream_stream_rpc_method_handler(abort_stream, **kw)
 
 
+async def mark_not_serving(server: grpc.aio.Server) -> None:
+    """Tell health checks this server is going away, before it stops answering."""
+    servicer = getattr(server, "health_servicer", None)
+    if servicer is not None:
+        res = servicer.enter_graceful_shutdown()
+        if inspect.isawaitable(res):
+            await res
+
+
 async def serve(
     address: str, jobs: JobManager, device: pb.DescribeDeviceResponse | None = None,
     calibration: CalibrationStore | None = None, *,
@@ -238,6 +247,7 @@ async def serve(
             if inspect.isawaitable(res):
                 await res
         health_name = health.SERVICE_NAME
+        server.health_servicer = health_servicer        # type: ignore[attr-defined]   # for mark_not_serving
     except ImportError:
         health_name = None
 
