@@ -55,5 +55,6 @@ client and stubs into a small package of their own is an open decision.
   instead of running it on mixed settings.
 - **Errors.** An unreachable or rebooting instrument raises `ConnectionError`; a refused or
   failed job raises `RuntimeError` with the instrument's message.
-- **No calibration writes.** The controller reads the platform; only Qibocal writes
-  `parameters.json` and `calibration.json`.
+- **The platform files are read-only here.** Only Qibocal writes `parameters.json` and
+  `calibration.json`. Each `play()` programs the instrument from them, and skips that write when
+  the instrument already holds those settings, so other clients' epoch pins stay valid.

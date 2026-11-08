@@ -61,7 +61,7 @@ class QcssController(Controller):
             tr = translate(seq, configs, options, sweepers, los=self._los, tick_per_ns=self._tick_per_ns,
                            sampling_rate=self._sampling_rate)
             # pin the job to the settings just uploaded: if another client reprograms the instrument
-            # before it runs, it is refused (and resubmitted) rather than run with someone else's settings
+            # before it runs, it is refused rather than run with someone else's settings
             tr.job.expected_calibration_epoch = self._program(client, tr.calibration)
             job_id, _ = self._call(client.submit, tr.job)
             st = self._call(client.wait, job_id, timeout_s=self.timeout_s)
@@ -82,6 +82,8 @@ class QcssController(Controller):
                 merged.CopyFrom(by_q[qc.qubit_index])
             merged.MergeFrom(qc)
             merged.readout_rotation_rad, merged.readout_threshold = qc.readout_rotation_rad, qc.readout_threshold
+        if all(by_q.get(qc.qubit_index) == qc for qc in upload.qubits):
+            return int(current.calibration_epoch)        # nothing to change: a write would stale other clients' pins
         return int(self._call(client.update_calibration, upload, current.calibration_epoch))
 
     def _call(self, fn: Any, *args: Any, **kwargs: Any) -> Any:
