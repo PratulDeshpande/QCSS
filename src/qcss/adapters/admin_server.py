@@ -14,6 +14,7 @@ from qcss.adapters.grpc_server import BearerTokenInterceptor
 from qcss.adapters.instrument_faults import InstrumentFaults
 from qcss.admin.v1 import admin_pb2 as apb
 from qcss.admin.v1 import admin_pb2_grpc as apbg
+from qcss.core.limits import MAX_TIME_SCALE
 from qcss.device.state import DeviceState
 from qcss.runtime.jobs import JobManager
 from qcss.runtime.runner import REQUESTED, SimulationContext
@@ -87,8 +88,9 @@ class AdminService(apbg.AdminServiceServicer):
 
     async def SetMode(self, request: apb.SetModeRequest, context: ServicerContext) -> apb.SetModeResponse:
         m = request.mode
-        if m.time_scale < 0:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "time_scale must be >= 0")
+        if not 0 <= m.time_scale <= MAX_TIME_SCALE:          # NaN fails both comparisons
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT,
+                                f"time_scale must be between 0 and {MAX_TIME_SCALE:g}")
         if m.tier_policy not in REQUESTED:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"unknown tier {m.tier_policy}")
         self.ctx.set_time_scale(m.time_scale)

@@ -52,7 +52,7 @@ from qcss.runtime.calibration_store import CalibrationEpochError, CalibrationSto
 
 __all__ = ["CalibrationEpochError", "JobInfo", "SimulationContext", "TierRoutingError",
            "create_simulation_runner", "create_simulation_validator"]
-from qcss.core.limits import MAX_READOUT_BYTES, MAX_SHOTS_PER_POINT, readout_bytes
+from qcss.core.limits import MAX_READOUT_BYTES, MAX_SHOTS_PER_POINT, MAX_TIME_SCALE, readout_bytes
 from qcss.signal.filters import FluxLineModel
 from qcss.signal.mixer import IQCorrection, IQImpairment
 from qcss.signal.port_renderer import DriveChain, FluxChain
@@ -212,8 +212,8 @@ class SimulationContext:
         self.calibration = calibration if calibration is not None else CalibrationStore(self.default_calibration())
         self.calibration.check = self._check_calibration
         self._device_state = (DeviceState(device, stream(global_seed, 0, Domain.DRIFT)) if device is not None else None)
-        if time_scale < 0:
-            raise ValueError("time_scale must be >= 0")
+        if not 0 <= time_scale <= MAX_TIME_SCALE:
+            raise ValueError(f"time_scale must be between 0 and {MAX_TIME_SCALE:g}")
         self.time_scale = time_scale
         self._wall_clock = wall_clock
         self._lab_anchor_s = 0.0
@@ -222,8 +222,8 @@ class SimulationContext:
 
     def set_time_scale(self, time_scale: float) -> None:
         """Change the pace of lab time from now on (lab time so far is kept)."""
-        if time_scale < 0:
-            raise ValueError("time_scale must be >= 0")
+        if not 0 <= time_scale <= MAX_TIME_SCALE:
+            raise ValueError(f"time_scale must be between 0 and {MAX_TIME_SCALE:g}")
         now = self.lab_time_s
         self.time_scale = time_scale
         self.lab_time_s = now
@@ -805,20 +805,23 @@ def create_simulation_runner(profile: HardwareProfile, device: DeviceSpec | None
         seq, tick = 1, 0
         lab0 = ctx.lab_time_s
         tick_s = 1.0 / float(ctx.tb.tick_hz)
-        for i, (pi, ci, n) in enumerate(work):
-            if cancel.is_set():
-                break
-            f01, t1 = ctx.device_parameters(lab0 + tick * tick_s)
-            result = await run_chunk(plan, (pi, ci, n, key, f01, t1, tick))
-            tick = result["end_tick"]
-            if paced is not None:
-                await paced.pace(tick * tick_s, cancel)
-            yield _chunk_proto(job_id, seq, ci * chunk_size, plan.points[pi], result, plan.epoch,
-                               i == len(work) - 1, plan.warnings if i == 0 else [])
-            seq += 1
-        # The chip is at least as old as the job's shots made it, and never younger than the scaled wall clock:
-        # a simulation slower than real time does not hand that overrun back (time on an instrument only runs on).
-        ctx.lab_time_s = max(lab0 + tick * tick_s, ctx.lab_time_s)
+        try:
+            for i, (pi, ci, n) in enumerate(work):
+                if cancel.is_set():
+                    break
+                f01, t1 = ctx.device_parameters(lab0 + tick * tick_s)
+                result = await run_chunk(plan, (pi, ci, n, key, f01, t1, tick))
+                tick = result["end_tick"]
+                if paced is not None:
+                    await paced.pace(tick * tick_s, cancel)
+                yield _chunk_proto(job_id, seq, ci * chunk_size, plan.points[pi], result, plan.epoch,
+                                   i == len(work) - 1, plan.warnings if i == 0 else [])
+                seq += 1
+        finally:
+            # The chip is at least as old as the shots that ran made it, and never younger than the scaled wall
+            # clock: a simulation slower than real time does not hand that overrun back (time on an instrument
+            # only runs on), and a job that fails partway still used its shots.
+            ctx.lab_time_s = max(lab0 + tick * tick_s, ctx.lab_time_s)
 
     runner.context = ctx                  # type: ignore[attr-defined]
     runner.pool = pool                    # type: ignore[attr-defined]

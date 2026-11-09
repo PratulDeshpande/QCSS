@@ -63,7 +63,7 @@ class DispersiveReadout:
         rate = {1: 1.0 / t1_ns, 2: 2.0 / t1_ns}               # cascade 2 -> 1 -> 0
         for s, m0 in enumerate(levels0):
             m, k = int(m0), 0
-            while m > 0:
+            while m > 0 and rate[m] > 0:               # an infinite T1 never decays
                 k_jump = k + int(np.ceil(rng.exponential(1.0 / rate[m]) / p.dt_ns))
                 if k_jump >= n:
                     break

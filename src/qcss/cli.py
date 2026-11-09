@@ -221,7 +221,7 @@ def validate(job_path: str, profile: str, device: str | None):
     default=None,
     help="Override simulation fidelity tier",
 )
-@click.option("--chunk-size", "-c", type=int, default=1024, help="Chunk size in shots (part of the seed key)")
+@click.option("--chunk-size", "-c", type=click.IntRange(min=1), default=1024, help="Chunk size in shots (part of the seed key)")
 @click.option("--output", "-o", type=click.Path(), default=None, help="Output JSON results file")
 def run(job_path: str, profile: str, device: str | None, shots: int | None, tier: str | None,
         chunk_size: int, output: str | None):

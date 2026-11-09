@@ -66,6 +66,8 @@ def stim_seed(global_seed: int, key: int, sweep_index: int, chunk_index: int) ->
 
 def chunks(num_shots: int, chunk: int = CHUNK_SHOTS) -> list[tuple[int, int]]:
     """[(chunk_index, n_in_chunk), ...] -- independent of pool size."""
+    if chunk < 1:
+        raise ValueError(f"chunk size must be at least 1 shot, not {chunk}")
     out, i, done = [], 0, 0
     while done < num_shots:
         n = min(chunk, num_shots - done)

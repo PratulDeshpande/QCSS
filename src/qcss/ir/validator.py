@@ -234,6 +234,8 @@ class Validator:
             if op.sequencer_id not in self.gen:
                 rep.error(op.path + ".sequencer_id", f"unknown sequencer '{op.sequencer_id}'")
                 continue
+            if not op.condition.registers:
+                rep.error(op.path + ".condition", "a condition needs at least one register")
             if len(op.condition.registers) > f.max_condition_addresses:
                 rep.error(op.path + ".condition", f"more than {f.max_condition_addresses} condition registers")
             for r in op.condition.registers:

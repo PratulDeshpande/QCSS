@@ -252,9 +252,10 @@ def expand_sweeps(job: job_pb2.Job) -> list[SweepPoint]:
         j = job_pb2.Job()
         j.CopyFrom(job)
         del j.sweeps[:]
-        for entries, i in zip(axis_values, idx, strict=True):
-            for s, vals in entries:
-                _apply_sweep_value(j, s, vals[i], errors)
+        applied = [(s, vals[i]) for entries, i in zip(axis_values, idx, strict=True) for s, vals in entries]
+        # a frequency sweep may insert an instruction at 0: apply it last so index-based sweeps still hit their target
+        for s, value in sorted(applied, key=lambda sv: sv[0].WhichOneof("target") == "frequency"):
+            _apply_sweep_value(j, s, value, errors)
         points.append(SweepPoint(tuple(idx), j))
     if errors:
         raise HardwareValidationError(errors)
