@@ -150,7 +150,10 @@ class _Machine:
 
     def address(self, mem: tuple[str | None, str | int]) -> int:
         base, off = mem
-        return (self.get(base) if base else 0) + (off if isinstance(off, int) else self.get(off))
+        addr = (self.get(base) if base else 0) + (off if isinstance(off, int) else self.get(off))
+        if addr < 0:
+            raise ValueError(f"negative memory address {addr}")      # numpy would wrap it to the end of memory
+        return addr
 
     # -- outputs -------------------------------------------------------------------------------------------
 
@@ -195,6 +198,8 @@ class _Machine:
                     else:
                         if k == "CALL":
                             self.stack.append(pc + 1)
+                        if target < 0:
+                            raise ValueError(f"negative jump address {target}")
                         nxt = target
                         self._skip_wait(i, pc)
             elif k == "REG_WR":

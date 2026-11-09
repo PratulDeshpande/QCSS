@@ -5,6 +5,7 @@ lab client can reach reveals or changes the simulation.
 """
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 
 import grpc
@@ -103,11 +104,15 @@ class AdminService(apbg.AdminServiceServicer):
 
     # ------------------------------------------------------------------ what only the simulator knows
     async def ReadTruth(self, request: apb.ReadTruthRequest, context: ServicerContext) -> apb.ReadTruthResponse:
-        lab_t = self.ctx.lab_time_s
-        f_ghz, t1_ns = self.ctx.device_parameters(lab_t)
-        state = self.ctx.device_state
-        dead = {state.device.qubits[r].qubit_index for r in state.scenarios.dead} if state is not None else set()
-        out = apb.ReadTruthResponse(lab_time_s=lab_t, properties=self.ctx.device_properties())
+        return await asyncio.to_thread(self._truth)       # the chip is read under its lock, off the event loop
+
+    def _truth(self) -> apb.ReadTruthResponse:
+        with self.ctx.device_lock:
+            lab_t = self.ctx.lab_time_s
+            f_ghz, t1_ns = self.ctx.device_parameters(lab_t)
+            state = self.ctx.device_state
+            dead = {state.device.qubits[r].qubit_index for r in state.scenarios.dead} if state is not None else set()
+            out = apb.ReadTruthResponse(lab_time_s=lab_t, properties=self.ctx.device_properties())
         for q, f, t1 in zip(self.ctx.qdef, f_ghz, t1_ns, strict=True):
             out.qubits.add(qubit_index=q, frequency_hz=f * 1e9, t1_s=t1 * 1e-9, dead=q in dead)
         return out

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import tempfile
 import time
@@ -60,10 +61,16 @@ def load_state(path: Path, ctx: SimulationContext, *, wall_now: float | None = N
         raise ValueError(f"{path}: not a chip state")      # noqa: TRY004 - bad file content, as for bad JSON
     if data.get("format") != FORMAT:
         raise ValueError(f"{path}: unsupported state format {data.get('format')!r}")
+    for key in ("device_sha256", "lab_time_s", "saved_at_unix_s", "device_state"):
+        if key not in data:
+            raise ValueError(f"{path}: not a chip state (no {key!r}); move it away to start a fresh chip")
+    lab_t, saved_at = data["lab_time_s"], data["saved_at_unix_s"]
+    if not all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in (lab_t, saved_at))             or not math.isfinite(lab_t) or lab_t < 0 or not math.isfinite(saved_at):
+        raise ValueError(f"{path}: bad lab_time_s or saved_at_unix_s; move it away to start a fresh chip")
     if data["device_sha256"] != _device_digest(ctx):
         raise ValueError(f"{path}: saved for a different device; move it away to start a fresh chip")
     now = time.time() if wall_now is None else wall_now
     if data["device_state"] is not None and ctx.device_state is not None:
         ctx.device_state.load_dict(data["device_state"])
-    ctx.lab_time_s = data["lab_time_s"] + max(0.0, now - data["saved_at_unix_s"]) * ctx.time_scale
+    ctx.lab_time_s = lab_t + max(0.0, now - saved_at) * ctx.time_scale
     return True

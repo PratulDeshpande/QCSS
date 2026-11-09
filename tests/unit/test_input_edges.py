@@ -162,3 +162,21 @@ async def test_a_job_that_fails_partway_still_ages_the_chip_by_the_shots_it_ran(
     with pytest.raises(RuntimeError, match="worker died"):
         [c async for c in runner("j", _pi_job(shots=20), asyncio.Event())]
     assert ctx.lab_time_s > 0.0
+
+
+@pytest.mark.anyio
+async def test_reading_the_truth_runs_off_the_event_loop_under_the_device_lock(monkeypatch):
+    import threading
+    svc, ctx, jobs = _service()
+    try:
+        loop_thread, seen = threading.get_ident(), []
+        real = ctx.device_properties
+
+        def spy():
+            seen.append((threading.get_ident(), ctx.device_lock._is_owned()))    # type: ignore[attr-defined]
+            return real()
+        monkeypatch.setattr(ctx, "device_properties", spy)
+        await svc.ReadTruth(apb.ReadTruthRequest(), cast(Any, MockServicerContext()))
+        assert seen == [(seen[0][0], True)] and seen[0][0] != loop_thread
+    finally:
+        await jobs.close()
