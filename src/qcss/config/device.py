@@ -22,12 +22,12 @@ class QubitSpec(BaseModel):
     qubit_index: int
     f_max_ghz: float
     ec_ghz: float
-    d_asym: float = 0.0                     # junction asymmetry parameter d in [0, 1]
+    d_asym: Annotated[float, Field(ge=0, le=1)] = 0.0       # junction asymmetry parameter d
     phi_offset: float = 0.0                 # flux offset in Phi0
     t1_us: Annotated[float, Field(gt=0)]
     t2_star_us: Annotated[float, Field(gt=0)]
-    t_eff_mk: float | None = None           # effective temperature in mK
-    p_excited: float | None = None          # thermal residual population (e.g. 0.015)
+    t_eff_mk: Annotated[float, Field(gt=0)] | None = None            # effective temperature in mK
+    p_excited: Annotated[float, Field(ge=0, le=1)] | None = None     # thermal residual population (e.g. 0.015)
     rabi_max_ghz: float = 0.05              # Rabi frequency at full-scale drive amplitude, GHz
     xy_mm: tuple[float, float] = (0.0, 0.0) # physical position on chip
     provenance: Provenance = Provenance()
@@ -51,7 +51,7 @@ class ResonatorSpec(BaseModel):
     kappa_mhz: float                        # linewidth (decay rate) in MHz
     pulls_mhz: tuple[float, float, float]   # [delta_f(0), delta_f(1), delta_f(2)] in MHz
     cable_delay_ns: float = 120.0           # external cable delay in ns
-    eta: float = 0.4                        # measurement quantum efficiency
+    eta: Annotated[float, Field(gt=0, le=1)] = 0.4          # measurement quantum efficiency
     readout_photons: float = 5.0            # nominal operating photons
     provenance: Provenance = Provenance()
 
@@ -128,6 +128,15 @@ class DeviceSpec(BaseModel):
 
     @model_validator(mode="after")
     def _validate_physics(self) -> DeviceSpec:
+        ids = [q.qubit_index for q in self.qubits]
+        if len(set(ids)) != len(ids):
+            raise ValueError(f"duplicate qubit_index in {sorted(i for i in set(ids) if ids.count(i) > 1)}")
+        for r in self.resonators:
+            if r.qubit_index not in ids:
+                raise ValueError(f"resonator for qubit {r.qubit_index}: the device has no qubit {r.qubit_index}")
+        for c in self.couplers:
+            if c.qubit_pair[0] == c.qubit_pair[1] or not set(c.qubit_pair) <= set(ids):
+                raise ValueError(f"coupler {c.qubit_pair}: needs two different qubits the device has")
         for q in self.qubits:
             # 1. T2* must be <= 2*T1
             if q.t2_star_us > 2.0 * q.t1_us * (1.0 + 1e-9):
