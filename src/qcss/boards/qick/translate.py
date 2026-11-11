@@ -22,7 +22,7 @@ computed here, per shot (``Translation.cabled``), and never reach the chassis.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from typing import TYPE_CHECKING, Any
 
@@ -86,14 +86,20 @@ class _Wiring:
 
 
 def _cable_window(t0: int, n_dec: int, dec_ticks: int, f_ro: float, tick_hz: float, delay: int,
-                  pulses: list[tuple[int, Any, int]], rng: np.random.Generator) -> np.ndarray:
-    """A readout window (decimated samples from tick ``t0``) of what a cabled generator sent."""
+                  pulses: list[tuple[int, Any, int, int | None]], rng: np.random.Generator) -> np.ndarray:
+    """A readout window (decimated samples from tick ``t0``) of what a cabled generator sent. Each pulse is
+    (start tick, pulse, ticks per DAC sample, stop tick): a periodic pulse repeats its wave until ``stop``
+    (the generator's next pulse), or on and on when ``stop`` is None."""
     tau = t0 + (np.arange(n_dec)[:, None] + (np.arange(_SUBSAMPLES) + 0.5) / _SUBSAMPLES) * dec_ticks
     sig = np.zeros(tau.shape, dtype=np.complex128)
-    for start, p, fine in pulses:
+    for start, p, fine, stop in pulses:
         rel = tau - delay - start
         idx = np.floor(rel / fine).astype(np.int64)
-        on = (idx >= 0) & (idx < p.n_samples)
+        if p.periodic:
+            on = (idx >= 0) & ((rel < stop - start) if stop is not None else True)
+            idx = idx % p.n_samples
+        else:
+            on = (idx >= 0) & (idx < p.n_samples)
         env = np.ones(p.n_samples, dtype=np.complex128) if p.envelope is None else p.envelope
         for tone in p.tones:
             amp = env[np.clip(idx, 0, p.n_samples - 1)] * tone.amplitude
@@ -149,14 +155,63 @@ def translate(trace: Trace, state: BoardState, bindings: Mapping[str, ChannelBin
 
     def shot_block(events: list[Event]) -> tuple[job_pb2.Block, list[Read], int, int, dict[str, np.ndarray]]:
         origin = min(e.t for e in events)
-        cable_pulses: dict[int, list[tuple[int, Any, int]]] = {}    # readout -> (tick, pulse, ticks/sample)
+        cable_pulses: dict[int, list[tuple[int, Any, int, int | None]]] = {}  # readout -> (tick, pulse, ticks/sample, stop)
         cable_reads: list[tuple[int, str, int, Any]] = []            # (readout, key, tick, Readout)
         busy: dict[int, int] = {}                 # generator -> tick it is free again
+        looping: dict[int, tuple[int, Any]] = {}  # generator -> (tick, periodic pulse) it is still repeating
         ins: list[job_pb2.Instruction] = []
         reads: list[Read] = []
         end = 0
         n_reads: dict[int, int] = {}
         toned: set[int] = set()                   # readouts a tone has set the probe frequency of
+
+        def emit(g: int, t: int, p: Any, stop: int | None = None) -> None:
+            fine = _ticks_per(tick_hz, state.gens[g].cfg["fs"])
+            if g in cable_of_gen:                 # into the test cable, not the chip
+                cable_pulses.setdefault(cable_of_gen[g], []).append((t, p, fine, stop))
+                return
+            b = wiring.dac.get(g)
+            if b is None:                         # the readout tones: each probes the readout tuned to it
+                for tone in p.tones:
+                    ch = tuned_readout(tone.freq_hz)
+                    if ch is None:
+                        continue                  # no readout listens there: the tone reaches no resonator model
+                    rb = wiring.ro[ch]
+                    toned.add(ch)
+                    ins.append(job_pb2.Instruction(start_tick=t, set_frequency=job_pb2.SetFrequency(
+                        frame_id=rb.frame_id, frequency_hz=tone.freq_hz)))
+                    ins.append(job_pb2.Instruction(start_tick=t, play=job_pb2.Play(
+                        channel_id=rb.channel_id, waveform_id=waveform(np.ones(p.n_samples, dtype=np.complex128)),
+                        amplitude=tone.amplitude, phase_offset_rad=tone.phase_rad)))
+                return
+            if not p.tones:
+                return
+            tone = p.tones[0]
+            env = p.envelope if p.envelope is not None else np.ones(p.n_samples, dtype=np.complex128)
+            if b.kind is ChannelKind.FLUX:
+                env = np.real(env * np.exp(1j * tone.phase_rad)).astype(np.complex128)
+                ins.append(job_pb2.Instruction(start_tick=t, play=job_pb2.Play(
+                    channel_id=b.channel_id, waveform_id=waveform(env), amplitude=tone.amplitude)))
+                return
+            ins.append(job_pb2.Instruction(start_tick=t, set_frequency=job_pb2.SetFrequency(
+                frame_id=b.frame_id, frequency_hz=tone.freq_hz)))
+            ins.append(job_pb2.Instruction(start_tick=t, play=job_pb2.Play(
+                channel_id=b.channel_id, waveform_id=waveform(env), amplitude=tone.amplitude,
+                phase_offset_rad=tone.phase_rad)))
+
+        def stop_looping(g: int, stop: int | None) -> None:
+            """A periodic pulse repeats its wave until the generator's next pulse (``stop``) or the shot's end."""
+            nonlocal end
+            t0, p = looping.pop(g)
+            if g in cable_of_gen:                 # the cable window repeats it sample by sample
+                emit(g, t0, p, stop)
+                return
+            fine = _ticks_per(tick_hz, state.gens[g].cfg["fs"])
+            n = max(p.n_samples, -(-((stop if stop is not None else end) - t0) // fine))
+            env = np.resize(p.envelope, n) if p.envelope is not None else None
+            emit(g, t0, replace(p, n_samples=n, envelope=env, periodic=False))
+            end = max(end, t0 + n * fine)
+
         for e in sorted(events, key=lambda e: e.t):
             t = (e.t - origin) * per_cycle
             if e.kind == "pulse" and e.port in gen_of_port:
@@ -167,38 +222,12 @@ def translate(trace: Trace, state: BoardState, bindings: Mapping[str, ChannelBin
                 dur = p.n_samples * _ticks_per(tick_hz, gen.cfg["fs"])
                 busy[g] = t + dur
                 end = max(end, t + dur)
-                if g in cable_of_gen:                 # into the test cable, not the chip
-                    cable_pulses.setdefault(cable_of_gen[g], []).append(
-                        (t, p, _ticks_per(tick_hz, gen.cfg["fs"])))
-                    continue
-                b = wiring.dac.get(g)
-                if b is None:                     # the readout tones: each probes the readout tuned to it
-                    for tone in p.tones:
-                        ch = tuned_readout(tone.freq_hz)
-                        if ch is None:
-                            continue              # no readout listens there: the tone reaches no resonator model
-                        rb = wiring.ro[ch]
-                        toned.add(ch)
-                        ins.append(job_pb2.Instruction(start_tick=t, set_frequency=job_pb2.SetFrequency(
-                            frame_id=rb.frame_id, frequency_hz=tone.freq_hz)))
-                        ins.append(job_pb2.Instruction(start_tick=t, play=job_pb2.Play(
-                            channel_id=rb.channel_id, waveform_id=waveform(np.ones(p.n_samples, dtype=np.complex128)),
-                            amplitude=tone.amplitude, phase_offset_rad=tone.phase_rad)))
-                    continue
-                if not p.tones:
-                    continue
-                tone = p.tones[0]
-                env = p.envelope if p.envelope is not None else np.ones(p.n_samples, dtype=np.complex128)
-                if b.kind is ChannelKind.FLUX:
-                    env = np.real(env * np.exp(1j * tone.phase_rad)).astype(np.complex128)
-                    ins.append(job_pb2.Instruction(start_tick=t, play=job_pb2.Play(
-                        channel_id=b.channel_id, waveform_id=waveform(env), amplitude=tone.amplitude)))
-                    continue
-                ins.append(job_pb2.Instruction(start_tick=t, set_frequency=job_pb2.SetFrequency(
-                    frame_id=b.frame_id, frequency_hz=tone.freq_hz)))
-                ins.append(job_pb2.Instruction(start_tick=t, play=job_pb2.Play(
-                    channel_id=b.channel_id, waveform_id=waveform(env), amplitude=tone.amplitude,
-                    phase_offset_rad=tone.phase_rad)))
+                if g in looping:
+                    stop_looping(g, t)
+                if p.periodic:
+                    looping[g] = (t, p)
+                else:
+                    emit(g, t, p)
             elif e.kind in ("trig_set", "bit_set"):
                 for ch in ro_of_trig.get((e.kind, e.port), []):
                     ro = readout_of(state.readouts[ch])
@@ -227,6 +256,8 @@ def translate(trace: Trace, state: BoardState, bindings: Mapping[str, ChannelBin
                     end = max(end, t + span)
             else:
                 end = max(end, t)
+        for g in list(looping):                   # never replaced in this shot: it repeats to the shot's end
+            stop_looping(g, None)
         ins.sort(key=lambda i: i.start_tick)      # stable: a SetFrequency stays before its Play
         windows = {}
         for ch, key, t, ro in cable_reads:

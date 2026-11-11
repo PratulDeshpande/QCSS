@@ -31,13 +31,12 @@ Use one notebook at a time: each starts a lab on the fixed ports 50051, 50052, 8
 | Notebook | Status on QCSS |
 |---|---|
 | [00 Send/receive pulse](qick/00_Send_receive_pulse.ipynb) | runs fully |
-| [01 Phase-coherent readout](qick/01_Phase_coherent_readout.ipynb) | setup runs; measurement cells are gaps (`soc.tproc` not served; periodic generator mode not simulated, a known bug) |
+| [01 Phase-coherent readout](qick/01_Phase_coherent_readout.ipynb) | the AveragerProgram measurements run; the fitted cable delay is 0.33 µs on both readouts. The raw-tProc cells are gaps (`soc.tproc` not served) |
 | [02 Sweeping variables](qick/02_Sweeping_variables.ipynb) | runs fully |
 | [05 Phase coherence](qick/05_PhaseCoherence_QickProgram.ipynb) | runs fully; the phase-vs-frequency slope (~333 ns) matches the 331 ns cable delay QCSS models |
 
 ## Known QCSS gaps found by these notebooks
 
-- **QICK periodic generator mode** (`mode="periodic"`): decoded but played once. Fix pending (`src/qcss/boards/qick/gens.py`).
 - **`soc.tproc`, `soc.readouts`, `soc.avg_bufs`, DDR4/MR buffers**: not served (`userdocs/reference/qick-surface.md`).
 - **Measurement feedback** (tProc v2 external flag): not simulated.
 
