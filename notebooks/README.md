@@ -35,6 +35,7 @@ Use one notebook at a time: each starts a lab on the fixed ports 50051, 50052, 8
 | [02 Sweeping variables](qick/02_Sweeping_variables.ipynb) | runs fully |
 | [03 Conditional logic](qick/03_Conditional_logic.ipynb) | runs fully: the pulse plays when the register condition holds and not otherwise |
 | [04 Reading, math, writing](qick/04_Reading_Math_Writing.ipynb) | the programs run; reading the tProc memory back is a gap (`soc.tproc` not served) |
+| [06 Qubit demos](qick/06_qubit_demos.ipynb) | runs fully except active reset (measurement feedback, a gap); about 7 minutes. Readout goes through this build's mux generator, so each program's readout lines change (marked `QCSS`). Ends with fit vs truth: f01 within 0.001 %, T1 within a few % |
 | [07 N-D sweeps](qick/07_Sweep_ND_variables.ipynb) | runs fully (slow: about 5 minutes, it sweeps thousands of points) |
 | [08 Special buffers](qick/08_Special_buffers.ipynb) | mostly gaps: the DDR4 and multi-rate buffers are not served |
 | [09 Photon counting](qick/09_photon_counting.ipynb) | gaps: needs a photon-counting firmware build (edge counter); qick itself refuses on a ZCU216 build without one, as on a real standard board |

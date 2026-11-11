@@ -37,13 +37,13 @@ def result_shape(name: str, value, shape: tuple | None = None, dtype=None) -> No
 
 def truth_table(rows: list[tuple[str, float, float, float]]) -> None:
     """rows: (quantity, measured, true, relative tolerance). Prints the comparison and asserts each row."""
-    print(f"{'quantity':<26}{'measured':>16}{'true (admin)':>16}{'error':>10}{'tol':>8}")
+    print(f"{'quantity':<26}{'measured':>16}{'true (admin)':>16}{'error':>10}{'tol':>9}")
     bad = []
     for name, measured, true, tol in rows:
         err = abs(measured - true) / abs(true)
         ok = err <= tol
         bad += [] if ok else [name]
-        print(f"{name:<26}{measured:>16.6g}{true:>16.6g}{err:>9.2%}{tol:>8.0%}  {'✓' if ok else '✗'}")
+        print(f"{name:<26}{measured:>16.8g}{true:>16.8g}{err:>9.4%}{tol:>9.2%}  {'✓' if ok else '✗'}")
     assert not bad, f"outside tolerance: {bad}"
 
 
