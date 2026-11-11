@@ -7,6 +7,7 @@ frequency after rounding to the PFB's DDS grid). Its average buffer (``config_av
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,7 @@ class Readout:
     sample_rate_hz: float             # decimated samples per second
     length: int                       # decimated samples per window (accumulated buffer)
     edge_counting: bool = False
+    phase_rad: float = 0.0            # the readout DDS phase: it rotates the returned I/Q by exp(-i phase)
 
     @property
     def window_s(self) -> float:
@@ -31,4 +33,7 @@ def readout_of(ro: ReadoutState) -> Readout:
     src = ro.pfb if ro.pfb is not None else ro.regs if isinstance(ro.regs, dict) else None
     freq = None if src is None or src.get("f_rounded") is None else float(src["f_rounded"]) * 1e6
     avg = ro.avg or {}
-    return Readout(freq, float(cfg["f_output"]) * 1e6, int(avg.get("length", 0)), bool(avg.get("edge_counting")))
+    # phase_int is a fraction of a turn, b_phase bits wide (qick's deg2int); absent: the DDS starts at phase 0
+    phase = 2 * math.pi * int(src.get("phase_int", 0)) / 2 ** int(cfg.get("b_phase", 32)) if src else 0.0
+    return Readout(freq, float(cfg["f_output"]) * 1e6, int(avg.get("length", 0)), bool(avg.get("edge_counting")),
+                   phase)

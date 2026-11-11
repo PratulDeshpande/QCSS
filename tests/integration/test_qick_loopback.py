@@ -57,7 +57,7 @@ def board():
 class Loopback(AveragerProgramV2):
     def _initialize(self, cfg):
         self.declare_gen(ch=GEN, nqz=1)
-        self.declare_readout(ch=RO, length=1.0, freq=F, gen_ch=GEN)
+        self.declare_readout(ch=RO, length=1.0, freq=F, gen_ch=GEN, phase=cfg.get("ro_phase", 0))
         self.add_pulse(ch=GEN, name="p", style="const", freq=F, phase=0, gain=cfg["gain"], length=0.3)
 
     def _body(self, cfg):
@@ -84,6 +84,20 @@ def test_the_signal_grows_with_the_generators_gain(board):
     a = [np.hypot(*Loopback(soccfg, reps=50, final_delay=1.0, cfg={"gain": g}).acquire(soc, progress=False)[0][0])
          for g in (0.2, 0.8)]
     assert a[1] / a[0] == pytest.approx(4.0, rel=0.05)
+
+
+def test_the_readout_phase_rotates_iq_as_the_pfb_dds_does(board):
+    """axis_pfb_readout_v3/v4 multiplies the ADC stream by a DDS whose sine is negated (qick firmware dds_0.xci:
+    Negative_Sine true), so a readout phase of phi rotates the I/Q it returns by exp(-i phi)."""
+    soc, soccfg = board
+
+    def iq(phase):
+        i, q = Loopback(soccfg, reps=50, final_delay=1.0, cfg={"gain": 0.5, "ro_phase": phase}).acquire(
+            soc, progress=False)[0][0]
+        return complex(i, q)
+
+    z0, z90 = iq(0), iq(90)
+    assert abs(z90 - z0 * np.exp(-1j * np.pi / 2)) < 0.05 * abs(z0)
 
 
 def test_a_cabled_round_needs_no_chip_simulation(board):
