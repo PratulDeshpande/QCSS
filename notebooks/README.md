@@ -33,6 +33,11 @@ Use one notebook at a time: each starts a lab on the fixed ports 50051, 50052, 8
 | [00 Send/receive pulse](qick/00_Send_receive_pulse.ipynb) | runs fully |
 | [01 Phase-coherent readout](qick/01_Phase_coherent_readout.ipynb) | the AveragerProgram measurements run; the fitted cable delay is 0.33 µs on both readouts. The raw-tProc cells are gaps (`soc.tproc` not served) |
 | [02 Sweeping variables](qick/02_Sweeping_variables.ipynb) | runs fully |
+| [03 Conditional logic](qick/03_Conditional_logic.ipynb) | runs fully: the pulse plays when the register condition holds and not otherwise |
+| [04 Reading, math, writing](qick/04_Reading_Math_Writing.ipynb) | the programs run; reading the tProc memory back is a gap (`soc.tproc` not served) |
+| [07 N-D sweeps](qick/07_Sweep_ND_variables.ipynb) | runs fully (slow: about 5 minutes, it sweeps thousands of points) |
+| [08 Special buffers](qick/08_Special_buffers.ipynb) | mostly gaps: the DDR4 and multi-rate buffers are not served |
+| [09 Photon counting](qick/09_photon_counting.ipynb) | gaps: needs a photon-counting firmware build (edge counter); qick itself refuses on a ZCU216 build without one, as on a real standard board |
 | [05 Phase coherence](qick/05_PhaseCoherence_QickProgram.ipynb) | runs fully; the phase-vs-frequency slope (~333 ns) matches the 331 ns cable delay QCSS models |
 
 ## Known QCSS gaps found by these notebooks
