@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -16,7 +17,7 @@ from typing import Any
 import grpc
 
 from qcss.adapters.admin_server import AdminService, serve_admin
-from qcss.adapters.grpc_server import describe_device, serve
+from qcss.adapters.grpc_server import describe_device, mark_not_serving, serve
 from qcss.adapters.instrument_faults import InstrumentFaults
 from qcss.boards.qibosoq import BoardWiring, QibosoqBoard
 from qcss.boards.qick.soc import QcssQickSoc  # numpy only: Pyro4 is imported when the face starts
@@ -58,6 +59,9 @@ class ChassisConfig:
     save_interval_s: float = 60.0
 
 
+log = logging.getLogger("qcss.chassis")
+
+
 class Chassis:
     def __init__(self, config: ChassisConfig) -> None:
         self.config = config
@@ -87,6 +91,13 @@ class Chassis:
         return Path(self.config.state_dir) / STATE_FILE
 
     async def start(self) -> None:
+        try:
+            await self._start()
+        except BaseException:                           # servers already bound must not outlive a failed start
+            await self.stop()
+            raise
+
+    async def _start(self) -> None:
         c = self.config
         self.jobs = JobManager(self._runner,
                                create_simulation_validator(c.profile, self.ctx.tb, c.device, context=self.ctx),
@@ -135,7 +146,10 @@ class Chassis:
     async def _save_periodically(self) -> None:
         while True:
             await asyncio.sleep(self.config.save_interval_s)
-            await asyncio.to_thread(self.save)          # JSON + fsync off the event loop; the snapshot takes device_lock
+            try:
+                await asyncio.to_thread(self.save)      # JSON + fsync off the event loop; the snapshot takes device_lock
+            except Exception:                           # a full disk must not end the saving
+                log.exception("saving the chip state failed; retrying at the next interval")
 
     def save(self) -> None:
         if self.config.state_dir is not None:
@@ -146,6 +160,8 @@ class Chassis:
         await self._lab.wait_for_termination()
 
     async def stop(self, grace_s: float = 1.0) -> None:
+        if self._lab is not None:
+            await mark_not_serving(self._lab)
         if self._saver is not None:
             self._saver.cancel()
             with contextlib.suppress(asyncio.CancelledError):
@@ -160,4 +176,7 @@ class Chassis:
                 await server.stop(grace=grace_s)
         if self.jobs is not None:
             await self.jobs.close()
+        pool = getattr(self._runner, "pool", None)
+        if pool is not None:
+            pool.shutdown(wait=False, cancel_futures=True)
         self.save()

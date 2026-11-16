@@ -15,6 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from qcss.config.device import ResonatorSpec
+from qcss.core.limits import check_record
 from qcss.readout.discriminator import BinaryDiscriminator, MultistateDiscriminator
 from qcss.readout.phenomenological import PhenomenologicalReadout
 from qcss.readout.resonator import DispersiveReadout, ResonatorParams, drive_amplitude_for_photons
@@ -144,6 +145,7 @@ class PhysicalReadout:
         pre = max(0, -drive.offset_samples)              # the record starts this long before the tone
         start = drive.offset_samples + pre
         m = max(1, start + n - self.tof_samples)         # drive samples the record needs to cover the window
+        check_record(len(levels), m + self.tof_samples)  # the tone can be placed arbitrarily far from the window
         key = (m, pre, drive.drive_samples)
         if key not in self._driven:                      # unit-amplitude mean fields: the model is linear
             d = np.zeros(m, dtype=np.complex128)

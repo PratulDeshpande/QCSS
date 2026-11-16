@@ -150,7 +150,10 @@ class _Machine:
 
     def address(self, mem: tuple[str | None, str | int]) -> int:
         base, off = mem
-        return (self.get(base) if base else 0) + (off if isinstance(off, int) else self.get(off))
+        addr = (self.get(base) if base else 0) + (off if isinstance(off, int) else self.get(off))
+        if addr < 0:
+            raise ValueError(f"negative memory address {addr}")      # numpy would wrap it to the end of memory
+        return addr
 
     # -- outputs -------------------------------------------------------------------------------------------
 
@@ -182,7 +185,8 @@ class _Machine:
                     if i.wr:
                         self.set(i.wr[0], res if i.wr[1] == "op" else (i.imm or 0))
             elif k in ("JUMP", "CALL", "RET"):
-                if k == "JUMP" and i.target == pc and i.cond == "1" and i.wr is None:
+                target = i.target if i.target is not None else self.s[15]
+                if k == "JUMP" and target == pc and i.cond == "1" and i.wr is None:
                     self.trace.halted = True                 # JUMP HERE: the program's end
                     break
                 if self.cond(i.cond):
@@ -194,7 +198,9 @@ class _Machine:
                     else:
                         if k == "CALL":
                             self.stack.append(pc + 1)
-                        nxt = i.target if i.target is not None else self.s[15]
+                        if target < 0:
+                            raise ValueError(f"negative jump address {target}")
+                        nxt = target
                         self._skip_wait(i, pc)
             elif k == "REG_WR":
                 if i.src == "wmem":
@@ -245,11 +251,13 @@ class _Machine:
 
     def _skip_wait(self, jump: Inst, pc: int) -> None:
         """The WAIT-time busy loop, TEST -op(s11 - #T) then JUMP to it -if(S): jump straight to its end."""
-        if jump.cond != "S" or jump.target != pc - 1:
+        target = jump.target if jump.target is not None else self.s[15]
+        if jump.cond != "S" or target not in (pc, pc - 1):
             return
         test = self.prog[pc - 1]
         if test.kind == "TEST" and test.src_a == "s11" and test.alu == "-" and test.src_b is None:
             self.core_t = max(self.core_t, float(self.t_ref + (test.imm or 0)))
+            self.flags(_s32(math.floor(self.core_t) - self.t_ref - (test.imm or 0)))
 
 
 def run(binprog: dict[str, Any], f_core: float = 200.0, f_time: float = 430.08,

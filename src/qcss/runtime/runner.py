@@ -19,7 +19,8 @@ import pickle
 import tempfile
 import threading
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -51,10 +52,11 @@ from qcss.runtime.calibration_store import CalibrationEpochError, CalibrationSto
 
 __all__ = ["CalibrationEpochError", "JobInfo", "SimulationContext", "TierRoutingError",
            "create_simulation_runner", "create_simulation_validator"]
+from qcss.core.limits import MAX_READOUT_BYTES, MAX_SHOTS_PER_POINT, MAX_TIME_SCALE, readout_bytes
 from qcss.signal.filters import FluxLineModel
 from qcss.signal.mixer import IQCorrection, IQImpairment
 from qcss.signal.port_renderer import DriveChain, FluxChain
-from qcss.signal.predistortion import QbloxRTP
+from qcss.signal.predistortion import PredistortionError, QbloxRTP
 from qcss.timing.instrument_time import InstrumentPacer
 from qcss.v1 import calibration_pb2, device_pb2, job_pb2, result_pb2
 
@@ -171,6 +173,21 @@ class _NullEngine:
         return 0
 
 
+_QUBIT_SETTINGS = ("drive_frequency_hz", "readout_frequency_hz", "pi_amplitude", "drag_beta_samples",
+                   "readout_rotation_rad", "readout_threshold")
+_MIXER_SETTINGS = ("dc_offset_i", "dc_offset_q", "gain_ratio", "phase_skew_rad")
+QBLOX_DEFAULT_FS_HZ = 1e9                         # a qubit with no flux line: only the ranges matter
+
+
+def _predistortion(fp: calibration_pb2.FluxPredistortion, fs_hz: float) -> QbloxRTP:
+    """The predistortion block loaded with these settings, or PredistortionError if it would refuse them."""
+    pre = QbloxRTP(fs_hz)
+    pre.configure([(s.amplitude, s.tau_s) for s in fp.exponential if s.enabled],
+                  fp.inverse_highpass_tau_s if fp.HasField("inverse_highpass_tau_s") else None,
+                  np.asarray(fp.fir_coefficients) if len(fp.fir_coefficients) else None)
+    return pre
+
+
 class SimulationContext:
     def __init__(self, profile: HardwareProfile, device: DeviceSpec | None = None, timebase: TimeBase | None = None,
                  calibration: CalibrationStore | None = None, global_seed: int = 0, *,
@@ -193,9 +210,10 @@ class SimulationContext:
                     for cid, b in self.bindings.items() if b.kind is ChannelKind.READOUT}
         self.qdef = self._qubit_defaults()
         self.calibration = calibration if calibration is not None else CalibrationStore(self.default_calibration())
+        self.calibration.check = self._check_calibration
         self._device_state = (DeviceState(device, stream(global_seed, 0, Domain.DRIFT)) if device is not None else None)
-        if time_scale < 0:
-            raise ValueError("time_scale must be >= 0")
+        if not 0 <= time_scale <= MAX_TIME_SCALE:
+            raise ValueError(f"time_scale must be between 0 and {MAX_TIME_SCALE:g}")
         self.time_scale = time_scale
         self._wall_clock = wall_clock
         self._lab_anchor_s = 0.0
@@ -204,8 +222,8 @@ class SimulationContext:
 
     def set_time_scale(self, time_scale: float) -> None:
         """Change the pace of lab time from now on (lab time so far is kept)."""
-        if time_scale < 0:
-            raise ValueError("time_scale must be >= 0")
+        if not 0 <= time_scale <= MAX_TIME_SCALE:
+            raise ValueError(f"time_scale must be between 0 and {MAX_TIME_SCALE:g}")
         now = self.lab_time_s
         self.time_scale = time_scale
         self.lab_time_s = now
@@ -261,6 +279,26 @@ class SimulationContext:
             if ro is not None:
                 qc.readout_delay_ticks = self.tof[ro.channel_id]
         return snap
+
+    def _check_calibration(self, snapshot: calibration_pb2.CalibrationSnapshot) -> list[tuple[str, str]]:
+        """What the instrument would refuse to load: stored, it would fail every job that follows."""
+        bad: list[tuple[str, str]] = []
+        flux_fs = {b.qubits[0]: float(self.tb.tick_hz / self.ticks_per_sample[b.generator_id])
+                   for b in self.bindings.values() if b.kind is ChannelKind.FLUX}
+        for i, qc in enumerate(snapshot.qubits):
+            path = f"snapshot.qubits[{i}]"
+            if qc.qubit_index not in self.qdef:
+                bad.append((f"{path}.qubit_index", f"qubit {qc.qubit_index} is not on this device"))
+            settings = [("", qc, _QUBIT_SETTINGS)]
+            settings += [(f"{m}.", getattr(qc, m), _MIXER_SETTINGS) for m in ("drive_mixer", "readout_mixer")]
+            bad += [(f"{path}.{prefix}{name}", "must be finite") for prefix, msg, names in settings for name in names
+                    if not np.isfinite(getattr(msg, name))]
+            if qc.HasField("flux_predistortion"):
+                try:
+                    _predistortion(qc.flux_predistortion, flux_fs.get(qc.qubit_index, QBLOX_DEFAULT_FS_HZ))
+                except PredistortionError as err:
+                    bad.append((f"{path}.flux_predistortion", str(err)))
+        return bad
 
     def _qcal(self, snap: calibration_pb2.CalibrationSnapshot, q: int) -> Any:
         return next((c for c in snap.qubits if c.qubit_index == q), None)
@@ -366,6 +404,19 @@ class SimulationContext:
         return frame_if_from_bindings(self.bindings, self.profile, by_frame)
 
     # ------------------------------------------------------------------ planning
+    def _over_capture_memory(self, prog: Any, num_shots: int) -> list[tuple[str, str]]:
+        """Acquisitions too long to simulate on this host, however well they fit the hardware's own limit."""
+        bad: list[tuple[str, str]] = []
+        for op in _all_ops(prog.ops):
+            b = self.bindings.get(op.channel_id) if isinstance(op, Acquire) else None
+            if b is None or b.generator_id not in self.ticks_per_sample:
+                continue
+            samples = op.integration // self.ticks_per_sample[b.generator_id]
+            shots = max(3 * SurrogateReadout.CAL_SHOTS, num_shots if op.mode == "raw_trace" else 0)
+            if readout_bytes(shots, samples) > MAX_READOUT_BYTES:
+                bad.append((op.path, "needs more capture memory than the instrument has"))
+        return bad
+
     def plan(self, job: job_pb2.Job) -> JobPlan:
         snap, os_set = self.calibration.pin()
         if job.HasField("expected_calibration_epoch") and job.expected_calibration_epoch != snap.calibration_epoch:
@@ -373,6 +424,8 @@ class SimulationContext:
                                         f"current is {snap.calibration_epoch}")
         if job.num_shots == 0:
             raise HardwareValidationError([("job.num_shots", "must be > 0")])
+        if job.num_shots > MAX_SHOTS_PER_POINT:
+            raise HardwareValidationError([("job.num_shots", f"at most {MAX_SHOTS_PER_POINT} per sweep point")])
         points: list[PlannedPoint] = []
         violations: list[tuple[str, str]] = []
         warnings: list[str] = []
@@ -388,6 +441,7 @@ class SimulationContext:
             prog, probe = _split_probe_frequencies(prog, self.profile)
             rep = validator.validate(prog, wf_lib)
             violations.extend((prefix + p, d) for p, d in rep.violations)
+            violations.extend((prefix + p, d) for p, d in self._over_capture_memory(prog, job.num_shots))
             warnings.extend(prefix + w for w in rep.warnings)
             points.append(PlannedPoint(pt.indices, pt.job, prog, wf_lib, probe))
         if violations:
@@ -501,11 +555,7 @@ class SimulationContext:
                         truth = FluxLineModel(fs, list(fl.exp_terms), bias_tee_tau_s=fl.bias_tee_tau_s)
                 qc = self._qcal(snap, q)
                 if qc is not None and qc.HasField("flux_predistortion"):
-                    fp = qc.flux_predistortion
-                    pre = QbloxRTP(fs)
-                    pre.configure([(s.amplitude, s.tau_s) for s in fp.exponential if s.enabled],
-                                  fp.inverse_highpass_tau_s if fp.HasField("inverse_highpass_tau_s") else None,
-                                  np.asarray(fp.fir_coefficients) if len(fp.fir_coefficients) else None)
+                    pre = _predistortion(qc.flux_predistortion, fs)
                 flux_chains[b.port_id] = FluxChain(truth, pre)
 
         readout, adc = {}, {}
@@ -724,12 +774,13 @@ def create_simulation_runner(profile: HardwareProfile, device: DeviceSpec | None
     workers > 0: a persistent spawn process pool (Windows-safe, one BLAS thread per worker).
     pacer: make each job take its upload latency plus its lab time in wall time, as on an instrument."""
     ctx = context if context is not None else SimulationContext(profile, device, timebase, global_seed=global_seed)
-    pool: concurrent.futures.ProcessPoolExecutor | None = None
-    if workers > 0:
-        pool = concurrent.futures.ProcessPoolExecutor(max_workers=workers, initializer=_worker_init,
+    def new_pool() -> concurrent.futures.ProcessPoolExecutor:
+        return concurrent.futures.ProcessPoolExecutor(max_workers=workers, initializer=_worker_init,
                                                       mp_context=multiprocessing.get_context("spawn"))
+    pool = new_pool() if workers > 0 else None
 
     async def run_chunk(plan: JobPlan, args: tuple) -> dict:
+        nonlocal pool
         if pool is None:
             return await asyncio.to_thread(ctx.simulate_chunk, plan, *args)
         snap = ctx.calibration.snapshot()
@@ -737,9 +788,15 @@ def create_simulation_runner(profile: HardwareProfile, device: DeviceSpec | None
                                 snap.SerializeToString(), sorted(ctx.calibration.os_set()), ctx.global_seed))
         blob = pickle.dumps((ctx_key, profile, device, snap.SerializeToString(), sorted(ctx.calibration.os_set()),
                              ctx.global_seed, (plan, *args)))
-        return await asyncio.get_running_loop().run_in_executor(pool, _worker_chunk, blob)
+        try:
+            return await asyncio.get_running_loop().run_in_executor(pool, _worker_chunk, blob)
+        except BrokenProcessPool:                 # a worker died (out of memory, say): this job fails, the next runs
+            pool.shutdown(wait=False)
+            pool = runner.pool = new_pool()       # type: ignore[attr-defined]
+            raise
 
-    async def runner(job_id: str, job: job_pb2.Job, cancel: asyncio.Event) -> AsyncIterator[result_pb2.ResultChunk]:
+    async def runner(job_id: str, job: job_pb2.Job,
+                     cancel: asyncio.Event) -> AsyncGenerator[result_pb2.ResultChunk, None]:
         plan = await asyncio.to_thread(ctx.plan, job)
         key = job_key(job.random_seed if ctx.honour_job_seed and job.HasField("random_seed") else None, job_id)
         num_shots = int(job.num_shots)
@@ -748,20 +805,23 @@ def create_simulation_runner(profile: HardwareProfile, device: DeviceSpec | None
         seq, tick = 1, 0
         lab0 = ctx.lab_time_s
         tick_s = 1.0 / float(ctx.tb.tick_hz)
-        for i, (pi, ci, n) in enumerate(work):
-            if cancel.is_set():
-                break
-            f01, t1 = ctx.device_parameters(lab0 + tick * tick_s)
-            result = await run_chunk(plan, (pi, ci, n, key, f01, t1, tick))
-            tick = result["end_tick"]
-            if paced is not None:
-                await paced.pace(tick * tick_s, cancel)
-            yield _chunk_proto(job_id, seq, ci * chunk_size, plan.points[pi], result, plan.epoch,
-                               i == len(work) - 1, plan.warnings if i == 0 else [])
-            seq += 1
-        # The chip is at least as old as the job's shots made it, and never younger than the scaled wall clock:
-        # a simulation slower than real time does not hand that overrun back (time on an instrument only runs on).
-        ctx.lab_time_s = max(lab0 + tick * tick_s, ctx.lab_time_s)
+        try:
+            for i, (pi, ci, n) in enumerate(work):
+                if cancel.is_set():
+                    break
+                f01, t1 = ctx.device_parameters(lab0 + tick * tick_s)
+                result = await run_chunk(plan, (pi, ci, n, key, f01, t1, tick))
+                tick = result["end_tick"]
+                if paced is not None:
+                    await paced.pace(tick * tick_s, cancel)
+                yield _chunk_proto(job_id, seq, ci * chunk_size, plan.points[pi], result, plan.epoch,
+                                   i == len(work) - 1, plan.warnings if i == 0 else [])
+                seq += 1
+        finally:
+            # The chip is at least as old as the shots that ran made it, and never younger than the scaled wall
+            # clock: a simulation slower than real time does not hand that overrun back (time on an instrument
+            # only runs on), and a job that fails partway still used its shots.
+            ctx.lab_time_s = max(lab0 + tick * tick_s, ctx.lab_time_s)
 
     runner.context = ctx                  # type: ignore[attr-defined]
     runner.pool = pool                    # type: ignore[attr-defined]

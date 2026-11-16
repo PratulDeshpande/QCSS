@@ -1,8 +1,9 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError, api } from "./api";
 import { calibrationWrite } from "./calibration";
-import { Leaf } from "./views/ConfigStudio";
+import { CalibrationEditor, Leaf } from "./views/ConfigStudio";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -21,6 +22,32 @@ describe("calibration write (review C1)", () => {
   it("ignores cleared (NaN) inputs instead of zeroing the field", () => {
     const snap = calibrationWrite(current, { readout_frequency_hz: Number.NaN }, 0);
     expect(snap.qubits[0].readout_frequency_hz).toBe(7.02e9);
+  });
+});
+
+describe("calibration editor", () => {
+  function open(qubits: object[]) {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => new Response(
+      JSON.stringify(String(url).includes("/lab/calibration") ? { calibration_epoch: 3, qubits } : {}),
+      { status: 200, headers: { "content-type": "application/json" } })));
+    render(<QueryClientProvider client={new QueryClient()}><CalibrationEditor /></QueryClientProvider>);
+  }
+  const write = () => screen.getByRole("button", { name: /Write/ }) as HTMLButtonElement;
+  const field = () => screen.findByLabelText(/drive_frequency_hz/) as Promise<HTMLInputElement>;
+
+  it("does not carry edits typed for one qubit over to another", async () => {
+    open([{ qubit_index: 0, drive_frequency_hz: 5e9 }, { qubit_index: 1, drive_frequency_hz: 6e9 }]);
+    fireEvent.change(await field(), { target: { value: "5100000000" } });
+    expect(write().disabled).toBe(false);
+    fireEvent.change(screen.getByLabelText("qubit"), { target: { value: "1" } });
+    expect(write().disabled).toBe(true);
+    expect((await field()).value).toBe("6000000000");
+  });
+
+  it("refuses to write a qubit it has no calibration for, which would wipe its other fields", async () => {
+    open([{ qubit_index: 1, drive_frequency_hz: 6e9 }]);
+    fireEvent.change(await field(), { target: { value: "5100000000" } });
+    expect(write().disabled).toBe(true);
   });
 });
 

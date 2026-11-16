@@ -11,6 +11,8 @@ cannot tell it is a simulator.
 
 ### Added
 
+* A ZCU111 QICK board, experimental: profiles `qick_zcu111_4q` and `qick_zcu111_5q`, firmware descriptions
+  `zcu111_v1_5q` and `zcu111_v2_5q`. No number in them has been checked against a real ZCU111 bitstream.
 * QCSS Explorer (`integrations/qcss_dashboard`): an operator dashboard that explains, visualizes and configures
   every layer (profile, device, calibration, job, chassis), with an embedded virtual lab, a sandbox that runs jobs
   through QCSS's own pipeline, admin and lab-bench views, and a registry that documents every config field.

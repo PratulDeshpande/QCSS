@@ -235,7 +235,7 @@ function ChangeDoc({ k }: { k?: string }) {
 }
 
 /** Calibration (layer C): the lab's beliefs, written with compare-and-swap exactly as Qibocal does. */
-function CalibrationEditor() {
+export function CalibrationEditor() {
   const qc = useQueryClient();
   const cal = useQuery({ queryKey: ["calibration"], queryFn: () => api.get<Json>("/lab/calibration") });
   const [q, setQ] = useState(0);
@@ -252,7 +252,7 @@ function CalibrationEditor() {
   return (
     <Panel title={<span className="flex items-center gap-2">Calibration <LabBadge /></span>} subtitle={`epoch ${cal.data?.calibration_epoch ?? "—"} · read and written over the lab link`}
       explain={<>Calibration is what the lab <em>believes</em>. QCSS never writes it: the virtual technician (real Qibocal) measures the drifting truth and writes it with compare-and-swap. A write here is a lab-client write: if someone wrote in between, it is refused (HTTP 409) and nothing changes. Compare with the truth in the Chip and Admin views to see how stale it is.</>}
-      actions={<Select value={String(q)} onChange={(v) => setQ(Number(v))} options={(cal.data?.qubits ?? []).map((x: Json) => String(x.qubit_index))} label="qubit" />}>
+      actions={<Select value={String(q)} onChange={(v) => { setQ(Number(v)); setEdits({}); setMsg(""); }} options={(cal.data?.qubits ?? []).map((x: Json) => String(x.qubit_index))} label="qubit" />}>
       <StateBox state={cal.isPending ? "loading" : cal.isError ? "error" : "ok"} error={cal.error} onRetry={() => cal.refetch()}>
         <div className="flex flex-wrap gap-4">
           {fields.map(([f, unit]) => (
@@ -261,7 +261,7 @@ function CalibrationEditor() {
           ))}
         </div>
         <div className="mt-3 flex items-center gap-3">
-          <Button kind="primary" onClick={() => write.mutate()} disabled={!Object.keys(edits).length || write.isPending}>Write (compare-and-swap)</Button>
+          <Button kind="primary" onClick={() => write.mutate()} disabled={!Object.keys(edits).length || qcal.qubit_index === undefined || write.isPending}>Write (compare-and-swap)</Button>
           <span className="text-[12px] text-ink2">{msg}</span>
         </div>
       </StateBox>

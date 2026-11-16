@@ -79,3 +79,29 @@ def test_a_pickle_in_place_of_the_state_is_refused_not_executed(tmp_path):
     (tmp_path / "chip.state").write_bytes(pickle.dumps({"format": 1, "x": Boom()}))
     with pytest.raises(ValueError, match="not a chip state"):
         load_state(tmp_path / "chip.state", ctx())
+
+
+def _saved(tmp_path):
+    import json
+    save_state(tmp_path / "chip.state", ctx(), wall_now=1000.0)
+    return tmp_path / "chip.state", json.loads((tmp_path / "chip.state").read_text())
+
+
+@pytest.mark.parametrize("key", ["device_sha256", "lab_time_s", "saved_at_unix_s", "device_state"])
+def test_a_state_file_missing_a_field_is_refused_with_a_clear_message(tmp_path, key):
+    import json
+    path, data = _saved(tmp_path)
+    del data[key]
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match=key):
+        load_state(path, ctx())
+
+
+@pytest.mark.parametrize("bad", [-1.0, float("nan"), float("inf"), "soon"])
+def test_a_state_file_with_a_bad_lab_time_is_refused(tmp_path, bad):
+    import json
+    path, data = _saved(tmp_path)
+    data["lab_time_s"] = bad
+    path.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="lab_time_s"):
+        load_state(path, ctx())

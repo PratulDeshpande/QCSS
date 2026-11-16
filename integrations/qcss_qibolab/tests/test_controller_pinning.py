@@ -49,3 +49,39 @@ def test_a_job_is_pinned_to_the_settings_its_play_uploaded():
                                             averaging_mode=AveragingMode.CYCLIC), [])
     (job,) = fake.jobs
     assert job.HasField("expected_calibration_epoch") and job.expected_calibration_epoch == 5
+
+
+class CountingInstrument(FakeInstrument):
+    def __init__(self, drive_hz: float) -> None:
+        super().__init__()
+        self.epoch, self.writes = 4, 0
+        self.drive_hz = drive_hz
+
+    def get_calibration(self, qubits=()):
+        return calibration_pb2.CalibrationSnapshot(calibration_epoch=self.epoch, qubits=[
+            calibration_pb2.QubitCalibration(qubit_index=0, drive_frequency_hz=self.drive_hz, pi_amplitude=0.3)])
+
+    def update_calibration(self, snapshot, expected_epoch):
+        self.writes += 1
+        self.epoch = expected_epoch + 1
+        return self.epoch
+
+
+def _settings(drive_hz: float) -> calibration_pb2.CalibrationSnapshot:
+    return calibration_pb2.CalibrationSnapshot(qubits=[
+        calibration_pb2.QubitCalibration(qubit_index=0, drive_frequency_hz=drive_hz)])
+
+
+def test_settings_the_instrument_already_has_are_not_written_again():
+    """A write bumps the epoch, which would invalidate every other client's pin for no change at all."""
+    ctl = QcssController(address="127.0.0.1:1", channels={})
+    fake = CountingInstrument(5.0e9)
+    assert ctl._program(fake, _settings(5.0e9)) == 4     # type: ignore[arg-type]
+    assert fake.writes == 0
+
+
+def test_changed_settings_are_written_and_the_job_is_pinned_to_the_new_epoch():
+    ctl = QcssController(address="127.0.0.1:1", channels={})
+    fake = CountingInstrument(5.0e9)
+    assert ctl._program(fake, _settings(5.1e9)) == 5     # type: ignore[arg-type]
+    assert fake.writes == 1

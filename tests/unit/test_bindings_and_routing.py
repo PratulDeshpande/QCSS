@@ -66,7 +66,7 @@ def test_resolver_has_no_hardcoded_fallback(qblox_profile):
         FeedbackLatencyResolver(prof).latency_ticks("qrm_rf0_seq0", "qcm_rf0_seq0")
 
 
-@pytest.mark.parametrize("name", ["qblox_cluster_5q", "zi_shfqc_5q", "qick_zcu216_4q", "test_ideal_1q"])
+@pytest.mark.parametrize("name", ["qblox_cluster_5q", "zi_shfqc_5q", "qick_zcu216_4q", "qick_zcu111_4q", "qick_zcu111_5q", "test_ideal_1q"])
 def test_every_shipped_profile_supports_readout_feedback(name):
     prof = load_profile(PROFILES + f"{name}.yaml")
     b = build_bindings(prof)
@@ -131,3 +131,32 @@ def test_a_qick_board_gives_every_qubit_its_own_dacs():
         assert len({b[f"{role}_q{q}"].generator_id for q in range(5)}) == 5, role
     assert {b[f"flux_q{q}"].port_id for q in range(5)} == {f"dac{5 + q}" for q in range(5)}
     assert {b[f"ro_q{q}"].port_id for q in range(5)} == {"dac10"}
+
+
+def test_qick_zcu111_clocks_are_commensurate():
+    """ZCU111 standard clock plan (384 MHz tProc, 6144 Msps DAC, 3072 Msps ADC) has exact integer tick factors."""
+    for name in ["qick_zcu111_4q", "qick_zcu111_5q"]:
+        prof = load_profile(PROFILES + f"{name}.yaml")
+        tb = TimeBase.from_clocks(prof.clock.tick_hz)
+        rates = {g.generator_id: tb.ticks_per(g.sample_rate_hz) for g in prof.generators}
+        assert rates["gen0"] == 5              # 6144.0 Msps DAC (30720 / 6144 = 5)
+        assert tb.ticks_per("384.0e6") == 80   # tProc cycle (30720 / 384 = 80)
+        assert tb.ticks_per("3072.0e6") == 10  # raw ADC (30720 / 3072 = 10)
+        assert tb.ticks_per("96.0e6") == 320   # PFB output (3072 / 32 = 96 MHz)
+        assert any(g.is_readout for g in prof.generators)
+
+
+def test_a_qick_zcu111_board_bindings():
+    """ZCU111 wired with 8 DACs (Gen 1 RFSoC limit): 5 drive DACs, 2 flux DACs, 1 multiplexed readout DAC."""
+    prof = load_profile(PROFILES + "qick_zcu111_5q.yaml")
+    dev = load_device(DEVICES + "transmon_5q.yaml")
+    b = build_bindings(prof, dev)
+    # 5 drive lines have dedicated DACs and generators (dac0-dac4)
+    assert {b[f"xy_q{q}"].port_id for q in range(5)} == {f"dac{q}" for q in range(5)}
+    assert len({b[f"xy_q{q}"].generator_id for q in range(5)}) == 5
+    # 2 flux DACs (dac5, dac6) shared round-robin across 5 qubits
+    assert {b[f"flux_q{q}"].port_id for q in range(5)} == {"dac5", "dac6"}
+    assert len({b[f"flux_q{q}"].generator_id for q in range(5)}) == 2
+    # 5 readout lines multiplexed to dac7
+    assert {b[f"ro_q{q}"].port_id for q in range(5)} == {"dac7"}
+    assert len({b[f"ro_q{q}"].generator_id for q in range(5)}) == 5

@@ -7,9 +7,20 @@ otherwise (e.g. ``*_samples``).
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Annotated
+from fractions import Fraction
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+
+def _positive_rate(value: str, field: str) -> str:
+    try:
+        ok = Fraction(value) > 0
+    except (ValueError, ZeroDivisionError):
+        ok = False
+    if not ok:
+        raise ValueError(f"{field} must be a positive number as text (e.g. \"430.08e6\"), got {value!r}")
+    return value
 
 
 class Provenance(BaseModel):
@@ -43,6 +54,8 @@ class ClockSpec(BaseModel):
     tick_hz: str                                  # decimal string, parsed exactly (Fraction)
     provenance: Provenance = Provenance()
 
+    _tick = field_validator("tick_hz")(lambda v: _positive_rate(v, "tick_hz"))
+
 
 class GeneratorSpec(BaseModel):
     """A sequencer / AWG core / signal generator: owns memory, NCO(s), timing rules."""
@@ -71,11 +84,20 @@ class GeneratorSpec(BaseModel):
     is_readout: bool = False
     provenance: Provenance = Provenance()
 
+    _rate = field_validator("sample_rate_hz")(lambda v: _positive_rate(v, "sample_rate_hz"))
+
+    @model_validator(mode="after")
+    def _check_nco_range(self) -> GeneratorSpec:
+        lo, hi = self.nco_freq_range_hz
+        if not lo < hi:
+            raise ValueError(f"generator {self.generator_id}: nco_freq_range_hz must be (low, high) with low < high")
+        return self
+
 
 class PortSpec(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
     port_id: str
-    kind: str                                   # "rf_iq" | "baseband" | "rf_direct"
+    kind: Literal["rf_iq", "baseband", "rf_direct"]
     max_generators: Annotated[int, Field(ge=1)] = 6
     full_scale_per_path: float = 1.0            # normalised units per I/Q path
     saturation_policy: SaturationPolicy = SaturationPolicy.WARN
@@ -94,7 +116,7 @@ class AcquisitionSpec(BaseModel):
     max_weight_sets: int = 32
     min_acq_spacing_ticks: int = 300
     internal_tof_ticks: int = 0                 # instrument-internal delay (Qblox ~149-153 ns)
-    integration_convention: str = "sum"         # "sum" or "mean"
+    integration_convention: Literal["sum", "mean"] = "sum"
     provenance: Provenance = Provenance()
 
 
@@ -130,6 +152,15 @@ class HardwareProfile(BaseModel):
 
     @model_validator(mode="after")
     def _check_refs(self) -> HardwareProfile:
+        for what, ids in (("port", [p.port_id for p in self.ports]),
+                          ("generator", [g.generator_id for g in self.generators])):
+            dup = sorted({i for i in ids if ids.count(i) > 1})
+            if dup:
+                raise ValueError(f"duplicate {what} id {dup}")
+        known = {g.generator_id for g in self.generators} | {"*"}
+        for lat in self.feedback.latencies:
+            if lat.src not in known or lat.dst not in known:
+                raise ValueError(f"latency {lat.src} -> {lat.dst} names a generator the profile does not have")
         ports = {p.port_id: p for p in self.ports}
         per_port: dict[str, int] = {}
         for g in self.generators:

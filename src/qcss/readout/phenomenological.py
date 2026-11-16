@@ -9,6 +9,8 @@ import numpy as np
 
 
 class PhenomenologicalReadout:
+    MAX_ROUNDS = 1000                 # a level accepted less than ~1 time in 100 is indistinguishable from its neighbour
+
     def __init__(self, confusion: np.ndarray, centroids: np.ndarray, sigma: float) -> None:
         self.c = np.asarray(confusion, dtype=np.float64)          # rows: true state, cols: reported
         if not np.allclose(self.c.sum(axis=1), 1.0):
@@ -28,11 +30,15 @@ class PhenomenologicalReadout:
             return labels, None
         iq = np.empty(len(labels), dtype=np.complex128)
         todo = np.arange(len(labels))
-        while todo.size:
+        for _ in range(self.MAX_ROUNDS):
+            if not todo.size:
+                break
             z = self.mu[labels[todo]] + self.sigma * (
                 rng.standard_normal(todo.size) + 1j * rng.standard_normal(todo.size)
             )
             ok = self._label_of(z) == labels[todo]
             iq[todo[ok]] = z[ok]
             todo = todo[~ok]
+        else:
+            raise ValueError("the readout centroids overlap so much that some levels are never reported")
         return labels, iq.astype(np.complex64)

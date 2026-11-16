@@ -1,0 +1,91 @@
+profile_name: qick_zcu111_5q
+vendor: qick
+# Experimental: every number below is derived from the standard ZCU111 clock plan and is unverified.
+# A ZCU111 evaluation board (XCZU28DR Gen 1 RFSoC) wired to a 5-qubit chip: 5 drive DACs (dac0-4,
+# rf_direct), 2 flux DACs (dac5-6, baseband), and 1 frequency-multiplexed readout DAC (dac7, rf_direct)
+# with one tone generator per qubit on the XM500 balun card. The tick (30720 MHz) is the exact LCM
+# of the 384 MHz tProc clock, 6144 Msps DAC, 3072 Msps ADC, and 96 MHz PFB output rate.
+# Every number carries provenance and remains unverified until checked against the specific bitstream.
+clock:
+  tick_hz: "30720.0e6"                 # 80 ticks per tProc cycle, 5 per DAC sample, 80 per ADC fabric cycle, 320 per PFB output sample
+  provenance: {source_url: "https://docs.qick.dev/latest/topics/timing.html", verified: false,
+               note: "derived from QICK standard ZCU111 build (384 MHz tProc, 6144 Msps DAC, 3072 Msps ADC decimated by the PFB to 96 MHz); firmware-specific"}
+ports:
+  - &drive_dac
+    port_id: dac0
+    kind: rf_direct
+    max_generators: 1
+    full_scale_per_path: 1.0
+    saturation_policy: clip
+    lo_frequency_hz: null
+    provenance: {source_url: "https://docs.qick.dev/latest/index.html", verified: false,
+                 note: "XCZU28DR RF-DAC Tile 228 CH0 on XM500 balun card"}
+  - {<<: *drive_dac, port_id: dac1, provenance: {verified: false, note: "Tile 228 CH1"}}
+  - {<<: *drive_dac, port_id: dac2, provenance: {verified: false, note: "Tile 228 CH2"}}
+  - {<<: *drive_dac, port_id: dac3, provenance: {verified: false, note: "Tile 228 CH3"}}
+  - {<<: *drive_dac, port_id: dac4, provenance: {verified: false, note: "Tile 229 CH0"}}
+  - &flux_dac
+    port_id: dac5
+    kind: baseband
+    max_generators: 1
+    full_scale_per_path: 1.0
+    saturation_policy: clip
+    provenance: {source_url: "https://docs.qick.dev/latest/index.html", verified: false, note: "Tile 229 CH1"}
+  - {<<: *flux_dac, port_id: dac6, provenance: {verified: false, note: "Tile 229 CH2"}}
+  - {<<: *drive_dac, port_id: dac7, max_generators: 5, provenance: {verified: false, note: "Tile 229 CH3 (multiplexed readout feedline)"}}
+generators:
+  - &gen
+    generator_id: gen0
+    port_id: dac0
+    module_id: rfsoc0
+    sample_rate_hz: "6144.0e6"
+    rt_granularity_ticks: 80          # one tProc cycle (2.604 ns at 384 MHz)
+    rt_min_duration_ticks: 80
+    wave_granularity_samples: 16      # one fabric cycle = 16 DAC samples
+    wave_min_samples: 16
+    wave_mem_samples: 65536
+    max_waveforms: 1024
+    instr_mem: 4096                   # program memory, words
+    max_wait_ticks_per_instr: 171798691840   # signed 32-bit tProc cycles x 80
+    nco_grid_ticks: 80
+    nco_min_spacing_ticks: 0
+    nco_phase_steps: 4294967296       # 32-bit phase accumulator
+    nco_freq_resolution_hz: 1.430511474609375       # 6144.0 MHz / 2^32
+    nco_freq_range_hz: [0.0, 6144.0e6]    # Nyquist zones 1 and 2: qibosoq picks nqz=2 above fs/2
+    overlap_policy: reject
+    provenance: {verified: false, note: "full-speed generator of the QICK ZCU111 build"}
+  - {<<: *gen, generator_id: gen1, port_id: dac1}
+  - {<<: *gen, generator_id: gen2, port_id: dac2}
+  - {<<: *gen, generator_id: gen3, port_id: dac3}
+  - {<<: *gen, generator_id: gen4, port_id: dac4}
+  - {<<: *gen, generator_id: gen5, port_id: dac5}
+  - {<<: *gen, generator_id: gen6, port_id: dac6}
+  - &ro_gen
+    <<: *gen
+    generator_id: ro_gen0
+    port_id: dac7
+    is_readout: true
+    provenance: {verified: false, note: "multiplexed readout tone generator; ADC side at 3072.0 Msps decimated by the PFB to 96 MHz"}
+  - {<<: *ro_gen, generator_id: ro_gen1}
+  - {<<: *ro_gen, generator_id: ro_gen2}
+  - {<<: *ro_gen, generator_id: ro_gen3}
+  - {<<: *ro_gen, generator_id: ro_gen4}
+acquisition:
+  modes: [raw_trace, integrated, discriminated]
+  max_discriminated_states: 2
+  integration_granularity_ticks: 80   # one ADC fabric cycle at 384 MHz (a PFB output sample is 320 ticks)
+  max_square_integration_ticks: 81920000
+  max_weighted_integration_ticks: 1310720   # 16384 fabric cycles x 80 ticks
+  max_weight_sets: 8
+  min_acq_spacing_ticks: 80
+  internal_tof_ticks: 3100            # ~101 ns DAC+ADC path
+  integration_convention: sum
+  provenance: {verified: false}
+feedback:
+  branch_equal_duration_required: false
+  trigger_grid_ticks: 80
+  trigger_min_period_ticks: 80
+  max_condition_addresses: 8
+  latencies:
+    - {src: "*", dst: "*", payload: bit, routing: self,  latency_ticks: 5760, provenance: {note: "~187.5 ns (Stefanazzi et al. RSI 2022: 184-211 ns)", verified: false}}
+    - {src: "*", dst: "*", payload: bit, routing: intra, latency_ticks: 5760, provenance: {note: "~187.5 ns (Stefanazzi et al. RSI 2022: 184-211 ns)", verified: false}}

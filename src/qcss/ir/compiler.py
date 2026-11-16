@@ -7,6 +7,7 @@ point is compiled and validated on its own (SW-10).
 from __future__ import annotations
 
 import itertools
+import math
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,6 +16,7 @@ import numpy as np
 from qcss.config.device import DeviceSpec
 from qcss.config.profile import GeneratorSpec, HardwareProfile
 from qcss.core.errors import HardwareValidationError
+from qcss.core.limits import MAX_EXPANDED_JOB_BYTES, MAX_SWEEP_POINTS
 from qcss.core.ndarray import from_proto
 from qcss.core.timebase import TimeBase
 from qcss.ir.program import (
@@ -101,7 +103,12 @@ def compile_job(
 
     wf_lib = WaveformLibrary()
     wf_lengths: dict[str, int] = {}
+    max_wave = max((g.wave_mem_samples for g in profile.generators), default=0)
     for w_id, w_proto in job.waveform_library.items():
+        if w_proto.length_samples > max_wave:         # checked first: building it would allocate all of it
+            errors.append((f"job.waveform_library[{w_id}].length_samples",
+                           f"{w_proto.length_samples} samples exceeds the largest waveform memory ({max_wave})"))
+            continue
         samples = _waveform_samples(w_id, w_proto, errors)
         if samples is None:
             continue
@@ -209,6 +216,8 @@ def expand_sweeps(job: job_pb2.Job) -> list[SweepPoint]:
     """Sweeps sharing an axis are zipped; different axes form a grid (last axis fastest).
     A job with program_points carries its points already resolved: one program each."""
     if job.program_points:
+        if len(job.program_points) > MAX_SWEEP_POINTS:
+            raise HardwareValidationError([("job.program_points", f"at most {MAX_SWEEP_POINTS} sweep points")])
         return _program_points(job)
     axes: dict[int, list[Any]] = {}
     for s in job.sweeps:
@@ -233,15 +242,20 @@ def expand_sweeps(job: job_pb2.Job) -> list[SweepPoint]:
         lengths.append(n or 0)
     if errors:
         raise HardwareValidationError(errors)
+    total = math.prod(lengths)
+    if total > MAX_SWEEP_POINTS or total * job.ByteSize() > MAX_EXPANDED_JOB_BYTES:
+        detail = f"{total} points of a {job.ByteSize()} byte job is too many (limit {MAX_SWEEP_POINTS} sweep points)"
+        raise HardwareValidationError([("job.sweeps", detail)])
 
     points = []
     for idx in itertools.product(*(range(n) for n in lengths)):
         j = job_pb2.Job()
         j.CopyFrom(job)
         del j.sweeps[:]
-        for entries, i in zip(axis_values, idx, strict=True):
-            for s, vals in entries:
-                _apply_sweep_value(j, s, vals[i], errors)
+        applied = [(s, vals[i]) for entries, i in zip(axis_values, idx, strict=True) for s, vals in entries]
+        # a frequency sweep may insert an instruction at 0: apply it last so index-based sweeps still hit their target
+        for s, value in sorted(applied, key=lambda sv: sv[0].WhichOneof("target") == "frequency"):
+            _apply_sweep_value(j, s, value, errors)
         points.append(SweepPoint(tuple(idx), j))
     if errors:
         raise HardwareValidationError(errors)
