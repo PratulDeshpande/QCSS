@@ -50,6 +50,8 @@ qibocal  = ["qibocal==0.2.6", "qibolab==0.2.17", "qibo>=0.3,<0.4"]
 # 0.2.370, the version qibosoq 0.1.5 pins and the firmware description is written for. qick's pynq
 # dependency, for the board's ARM CPU, has a git-only requirement that uv's universal lock cannot resolve.
 qick     = ["Pyro4>=4.82,<5", "psutil>=5.9"]
+# The tutorial notebooks under notebooks/ and their runner (pytest --nbmake notebooks).
+notebooks = ["jupyterlab>=4", "ipykernel>=6", "nbclient>=0.10", "nbmake>=1.5", "matplotlib>=3.8", "ipywidgets>=8"]
 
 
 [dependency-groups]

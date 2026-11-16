@@ -100,6 +100,46 @@ def test_a_busy_generator_plays_the_next_pulse_when_it_is_free():
     assert b.start_tick == a.start_tick + n
 
 
+class Periodic(AveragerProgramV2):
+    """A periodic drive pulse repeats its waveform until the generator's next pulse (qick: "dummypulse" stops one)."""
+
+    def _initialize(self, cfg):
+        _base(self)
+        self.add_pulse(ch=0, name="loop", style="const", freq=4500, phase=0, length=0.01, gain=0.5, mode="periodic")
+        self.add_pulse(ch=0, name="next", style="const", freq=4500, phase=0, length=0.01, gain=0.5)
+
+    def _body(self, cfg):
+        self.pulse(ch=0, name="loop", t=0)
+        self.pulse(ch=0, name="next", t=0.2)
+        self.pulse(ch=MUX, name="probe", t=0.3)
+        self.trigger(ros=[0], t=0.3)
+
+
+def test_a_periodic_pulse_plays_until_the_generators_next_pulse():
+    tr, _ = _translate(Periodic, reps=1)
+    job = tr.jobs[0]
+    a, b = [i for i in _ops(job.program_points[0], "play") if i.play.channel_id == "xy_q0"]
+    samples = job.waveform_library[a.play.waveform_id].length_samples
+    ticks_per_sample = TICKS_PER_CYCLE // 16                 # 16 DAC samples per fabric cycle on these gens
+    assert samples * ticks_per_sample == b.start_tick - a.start_tick
+
+
+def test_a_periodic_pulse_keeps_feeding_the_cable_until_it_is_stopped():
+    from dataclasses import replace
+
+    from qcss.boards.qick.gens import Pulse, Tone
+    from qcss.boards.qick.translate import CABLE_UNITS_FULL_SCALE, _cable_window
+
+    p = Pulse((Tone(freq_hz=0.0, phase_rad=0.0, amplitude=0.5),), 16, 1e9, None, dds=False, periodic=True)
+
+    def window(pulse, stop):                                 # 10 samples from tick 1000, long after one period
+        return np.abs(_cable_window(1000, 10, 4, 0.0, 1e9, 0, [(0, pulse, 1, stop)], np.random.default_rng(0)))
+
+    np.testing.assert_allclose(window(p, None), 0.5 * CABLE_UNITS_FULL_SCALE, atol=0.2)
+    assert window(p, 500).max() < 0.2                        # replaced at tick 500: silent by tick 1000
+    assert window(replace(p, periodic=False), None).max() < 0.2   # a oneshot pulse played once
+
+
 def test_the_chassis_validator_accepts_the_translated_job():
     tr, _ = _translate(Rabi)
     validate = create_simulation_validator(PROFILE, TimeBase.from_clocks(PROFILE.clock.tick_hz), DEVICE)

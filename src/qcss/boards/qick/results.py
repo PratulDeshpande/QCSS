@@ -17,6 +17,7 @@ truncated to an integer as the firmware's arithmetic does; the accumulated value
 from __future__ import annotations
 
 import asyncio
+import cmath
 import math
 import threading
 import time
@@ -27,6 +28,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from qcss.boards.qick.readouts import readout_of
 from qcss.boards.qick.tproc_v1 import COUNTER_ADDR
 from qcss.boards.qick.tproc_v1 import run as run_v1
 from qcss.boards.qick.tproc_v2_run import run
@@ -172,6 +174,8 @@ def _execute(rnd: Round, tr: Translation, state: BoardState, link: ChassisLink) 
     dec_ticks = {i: tick_hz / Fraction(str(r.cfg["f_output"])) / 10 ** 6 for i, r in enumerate(ros)}
     offsets = {i: ro_offset(r.cfg, r.pfb) for i, r in enumerate(ros)}
     n_dec = {i: int((r.avg or {}).get("length", 0)) for i, r in enumerate(ros)}
+    # the readout DDS multiplies by exp(-i(wt + phase)) (qick firmware: the PFB DDS's sine is negated)
+    rot = {i: cmath.exp(-1j * readout_of(r).phase_rad) for i, r in enumerate(ros)}
     results: dict[tuple[int, int], dict[str, list[Any]]] = {}     # (job, point) -> key -> per-shot values
     arrived: dict[tuple[int, int], int] = {}
     next_shot = 0
@@ -182,6 +186,7 @@ def _execute(rnd: Round, tr: Translation, state: BoardState, link: ChassisLink) 
         for read in tr.reads[j][p]:
             v = tr.cabled[shot][read.key] if read.cabled else res[read.key][occ]
             ch = read.ro_ch
+            v = v * rot[ch] if isinstance(v, np.ndarray) else complex(v) * rot[ch]
             if isinstance(v, np.ndarray):            # a raw window: the decimated buffer, and its sum
                 d = _decimate(v, n_dec[ch], offsets[ch])
                 w = rnd.dec_written.get(ch, 0)
