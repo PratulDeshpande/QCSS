@@ -76,6 +76,7 @@ class JobManager:
     def __init__(self, runner: Runner, validator: Validator, *,
                  max_buffered_chunks: int = 64, max_concurrent_jobs: int = 2,
                  max_retained_jobs: int = 256, max_retained_bytes_per_job: int = 256 << 20,
+                 max_retained_bytes_total: int = 1 << 30,
                  expose_diagnostics: bool = True, reader_stall_timeout_s: float = 300.0,
                  max_pending: int = 256) -> None:
         """expose_diagnostics: copy the simulator's tier and noise fidelity into JobStatus. A lab chassis
@@ -90,16 +91,21 @@ class JobManager:
         self._max_buf = max_buffered_chunks
         self._max_jobs = max_retained_jobs
         self._max_bytes = max_retained_bytes_per_job
+        self._max_total_bytes = max_retained_bytes_total     # across finished jobs; oldest drop their chunks first
         self._stall_s = reader_stall_timeout_s
         self._max_pending = max_pending
         self._wakers: set[asyncio.Task[None]] = set()   # the loop only holds tasks weakly
         self._finished_order: collections.deque[str] = collections.deque()   # oldest finished job first
         self._workers = [asyncio.create_task(self._dispatch_loop()) for _ in range(max_concurrent_jobs)]
 
-    async def submit(self, job: job_pb2.Job) -> str:
+    def _check_room(self) -> None:
         if sum(r.status.state == result_pb2.JOB_STATE_QUEUED for r in self._jobs.values()) >= self._max_pending:
             raise JobQueueFullError(f"{self._max_pending} jobs are already waiting")
+
+    async def submit(self, job: job_pb2.Job) -> str:
+        self._check_room()
         info = await self._validator(job)         # raises -> INVALID_ARGUMENT / FAILED_PRECONDITION
+        self._check_room()                        # others may have been admitted while this one validated
         job_id = uuid.uuid4().hex
         st = result_pb2.JobStatus(job_id=job_id, state=result_pb2.JOB_STATE_QUEUED, submitted_at=_now())
         if info is not None and self._expose:
@@ -202,6 +208,17 @@ class JobManager:
         self._finished_order.append(rec.job_id)
         while len(self._finished_order) > self._max_jobs:
             self._jobs.pop(self._finished_order.popleft(), None)
+        total = sum(r.retained_bytes for j in self._finished_order if (r := self._jobs.get(j)) is not None)
+        for j in self._finished_order:            # over the global budget: oldest results go first, records stay
+            if total <= self._max_total_bytes:
+                break
+            old = self._jobs.get(j)
+            if old is not None and old.chunks:
+                total -= old.retained_bytes
+                old.first += len(old.chunks)
+                old.chunks.clear()
+                old.retained_bytes = 0
+                self._wake(old)
 
     async def _dispatch_loop(self) -> None:
         while True:

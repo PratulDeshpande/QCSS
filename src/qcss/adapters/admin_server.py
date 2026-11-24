@@ -28,15 +28,18 @@ class AdminService(apbg.AdminServiceServicer):
     def __init__(self, ctx: SimulationContext, jobs: JobManager, faults: InstrumentFaults) -> None:
         self.ctx, self.jobs, self.faults = ctx, jobs, faults
 
+    def _apply_scenario(self, state: DeviceState, change: Callable[[DeviceState], None]) -> None:
+        with self.ctx.device_lock:
+            self.ctx.device_parameters(self.ctx.lab_time_s)       # bring the chip to now first
+            change(state)
+
     async def _scenario(self, context: ServicerContext, change: Callable[[DeviceState], None]) -> None:
         state = self.ctx.device_state
         if state is None:
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "the chassis runs without a device file")
             return
         try:
-            with self.ctx.device_lock:
-                self.ctx.device_parameters(self.ctx.lab_time_s)       # bring the chip to now first
-                change(state)
+            await asyncio.to_thread(self._apply_scenario, state, change)      # the lock may be held by a job
         except KeyError as err:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(err.args[0]) if err.args else str(err))
         except ValueError as err:
@@ -107,12 +110,13 @@ class AdminService(apbg.AdminServiceServicer):
         return await asyncio.to_thread(self._truth)       # the chip is read under its lock, off the event loop
 
     def _truth(self) -> apb.ReadTruthResponse:
+        props = self.ctx.device_properties()      # slow (readout model); takes the lock only for the chip read
         with self.ctx.device_lock:
             lab_t = self.ctx.lab_time_s
             f_ghz, t1_ns = self.ctx.device_parameters(lab_t)
             state = self.ctx.device_state
             dead = {state.device.qubits[r].qubit_index for r in state.scenarios.dead} if state is not None else set()
-            out = apb.ReadTruthResponse(lab_time_s=lab_t, properties=self.ctx.device_properties())
+            out = apb.ReadTruthResponse(lab_time_s=lab_t, properties=props)
         for q, f, t1 in zip(self.ctx.qdef, f_ghz, t1_ns, strict=True):
             out.qubits.add(qubit_index=q, frequency_hz=f * 1e9, t1_s=t1 * 1e-9, dead=q in dead)
         return out

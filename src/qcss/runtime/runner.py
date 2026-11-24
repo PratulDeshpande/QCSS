@@ -809,7 +809,7 @@ def create_simulation_runner(profile: HardwareProfile, device: DeviceSpec | None
             for i, (pi, ci, n) in enumerate(work):
                 if cancel.is_set():
                     break
-                f01, t1 = ctx.device_parameters(lab0 + tick * tick_s)
+                f01, t1 = await asyncio.to_thread(ctx.device_parameters, lab0 + tick * tick_s)
                 result = await run_chunk(plan, (pi, ci, n, key, f01, t1, tick))
                 tick = result["end_tick"]
                 if paced is not None:

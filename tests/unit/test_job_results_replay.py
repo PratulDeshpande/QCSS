@@ -144,3 +144,42 @@ async def test_a_stale_calibration_epoch_at_execution_start_rejects_the_job():
         assert "current is 4" in st.message
     finally:
         await jobs.close()
+
+
+async def test_global_byte_budget_drops_the_oldest_finished_jobs_results_but_keeps_the_record():
+    size = result_pb2.ResultChunk(job_id="x", sequence_number=1, is_last=True).ByteSize() + 32
+    jobs = JobManager(five_chunks, validator, max_retained_bytes_total=size * 8)
+    try:
+        ids = []
+        for _ in range(3):
+            ids.append(await jobs.submit(job_pb2.Job(num_shots=1)))
+            await asyncio.wait_for(jobs._jobs[ids[-1]].finished.wait(), 5)
+        with pytest.raises(ResultsEvictedError):
+            await _drain(jobs, ids[0])
+        assert jobs.status(ids[0]).state == result_pb2.JOB_STATE_COMPLETED
+        assert sum(r.retained_bytes for r in jobs._jobs.values()) <= size * 8
+    finally:
+        await jobs.close()
+
+
+async def test_concurrent_submits_cannot_overshoot_max_pending():
+    gate = asyncio.Event()
+
+    async def slow_validator(job: job_pb2.Job) -> None:
+        await gate.wait()
+
+    async def block(job_id: str, job: job_pb2.Job, cancel: asyncio.Event):
+        await cancel.wait()
+        return
+        yield
+
+    jobs = JobManager(block, slow_validator, max_concurrent_jobs=1, max_pending=1)
+    try:
+        await jobs._queue.put((0, -1, "none"))          # keeps the single worker's slot from running anything real
+        tasks = [asyncio.create_task(jobs.submit(job_pb2.Job(num_shots=1))) for _ in range(3)]
+        await asyncio.sleep(0.05)
+        gate.set()
+        res = await asyncio.gather(*tasks, return_exceptions=True)
+        assert sum(isinstance(r, str) for r in res) == 1
+    finally:
+        await jobs.close()

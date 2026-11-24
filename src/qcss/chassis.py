@@ -94,7 +94,10 @@ class Chassis:
         try:
             await self._start()
         except BaseException:                           # servers already bound must not outlive a failed start
-            await self.stop()
+            try:
+                await self.stop()
+            except Exception:                           # noqa: BLE001 - the start failure is the error to report
+                log.exception("stopping after a failed start also failed")
             raise
 
     async def _start(self) -> None:
@@ -160,23 +163,40 @@ class Chassis:
         await self._lab.wait_for_termination()
 
     async def stop(self, grace_s: float = 1.0) -> None:
+        """Run every shutdown step even when one fails; the first failure is raised at the end."""
+        errors: list[Exception] = []
+
+        async def step(fn: Any, *args: Any) -> None:
+            try:
+                await fn(*args)
+            except Exception as exc:                    # noqa: BLE001 - the rest must still run
+                errors.append(exc)
+
+        async def stop_saver() -> None:
+            if self._saver is not None:
+                self._saver.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await self._saver
+
+        async def stop_qick() -> None:
+            loops, self._qick = list(self._qick), []
+            for loop in loops:
+                await step(asyncio.to_thread, loop.stop)
+
         if self._lab is not None:
-            await mark_not_serving(self._lab)
-        if self._saver is not None:
-            self._saver.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await self._saver
+            await step(mark_not_serving, self._lab)
+        await step(stop_saver)
         if self._board is not None:
-            await self._board.stop()
-        for loop in self._qick:
-            await asyncio.to_thread(loop.stop)
-        self._qick.clear()
+            await step(self._board.stop)
+        await step(stop_qick)
         for server in (self._lab, self._admin):
             if server is not None:
-                await server.stop(grace=grace_s)
+                await step(server.stop, grace_s)
         if self.jobs is not None:
-            await self.jobs.close()
+            await step(self.jobs.close)
         pool = getattr(self._runner, "pool", None)
         if pool is not None:
-            pool.shutdown(wait=False, cancel_futures=True)
-        self.save()
+            await step(asyncio.to_thread, lambda: pool.shutdown(wait=False, cancel_futures=True))
+        await step(asyncio.to_thread, self.save)
+        if errors:
+            raise errors[0]

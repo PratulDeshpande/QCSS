@@ -200,3 +200,22 @@ def test_sigterm_stops_the_server_cleanly_and_saves_the_chip(tmp_path):
         assert (tmp_path / STATE_FILE).exists()
     finally:
         proc.kill()
+
+
+async def test_one_failing_stop_step_does_not_skip_the_rest(tmp_path, monkeypatch):
+    chassis = Chassis(config(tmp_path, time_scale=0.0, workers=1))
+    closed = []
+
+    class Jobs:
+        async def close(self) -> None:
+            closed.append(1)
+
+    class Board:
+        async def stop(self) -> None:
+            raise RuntimeError("board hung")
+
+    chassis.jobs, chassis._board = cast(Any, Jobs()), cast(Any, Board())
+    monkeypatch.setattr(chassis, "save", lambda: closed.append("saved"))
+    with pytest.raises(RuntimeError, match="board hung"):
+        await chassis.stop()
+    assert closed == [1, "saved"]

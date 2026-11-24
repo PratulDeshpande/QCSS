@@ -40,7 +40,7 @@ class ControlService(pbg.ControlServiceServicer):
 
     async def _abort_unexpected(self, context: ServicerContext, rpc: str, err: Exception) -> NoReturn:
         """Bad input no validator named is the client's fault; anything else is ours. A lab chassis says neither why."""
-        if isinstance(err, ValueError | LookupError):
+        if isinstance(err, ValueError):      # a stray KeyError is our bug, not bad input
             log.warning("%s: invalid request: %s", rpc, err)
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(err)[:1000] if self.jobs.expose_diagnostics
                                 else "the request is not valid for this instrument")
@@ -166,16 +166,13 @@ class BearerTokenInterceptor(grpc.aio.ServerInterceptor):
     ) -> grpc.RpcMethodHandler | None:
         md = {k: v for k, v in (handler_call_details.invocation_metadata or ())}
         method = handler_call_details.method or ""
-        job_id, trace = md.get("x-quark-job-id"), md.get("traceparent")
-        if job_id or trace:
-            log.info("rpc %s quark_job_id=%s traceparent=%s", method, job_id, trace)
         handler = await continuation(handler_call_details)
-        if handler is None or self._expected is None or method.startswith(_PUBLIC_METHOD_PREFIXES):
-            return handler
-        got = md.get("authorization", "")
-        if hmac.compare_digest(str(got).encode(), self._expected):
-            return handler
-        return _deny(handler)
+        if handler is not None and self._expected is not None and not method.startswith(_PUBLIC_METHOD_PREFIXES)                 and not hmac.compare_digest(str(md.get("authorization", "")).encode(), self._expected):
+            return _deny(handler)
+        job_id, trace = md.get("x-quark-job-id"), md.get("traceparent")      # logged only for callers let in
+        if job_id or trace:
+            log.info("rpc %s quark_job_id=%.64s traceparent=%.128s", method, job_id, trace)
+        return handler
 
 
 def _deny(handler: grpc.RpcMethodHandler) -> grpc.RpcMethodHandler:

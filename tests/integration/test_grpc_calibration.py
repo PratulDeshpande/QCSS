@@ -215,7 +215,7 @@ async def test_a_usable_predistortion_is_accepted_and_runs():
 @pytest.mark.anyio
 @pytest.mark.parametrize("raised, code", [
     (ValueError("cannot reshape in StimT1a"), grpc.StatusCode.INVALID_ARGUMENT),
-    (KeyError("lindblad table"), grpc.StatusCode.INVALID_ARGUMENT),
+    (KeyError("lindblad table"), grpc.StatusCode.INTERNAL),      # a stray lookup is our bug, not bad input
     (RuntimeError("surrogate blew up"), grpc.StatusCode.INTERNAL),
 ])
 async def test_a_lab_chassis_reports_unexpected_failures_without_its_insides(raised, code):
