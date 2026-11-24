@@ -10,6 +10,7 @@ Every gRPC failure becomes a DriverError the Scheduler can act on (see errors.py
 """
 from __future__ import annotations
 
+import contextlib
 import datetime
 import time
 from collections import Counter
@@ -69,9 +70,13 @@ class QcssExecutionDriver:
 
     def status(self, handle: Handle) -> JobStatus:
         try:
-            return _STATUS[self.client.status(handle.backend_job_id).state]
+            state = self.client.status(handle.backend_job_id).state
         except QcssRpcError as err:
             raise classify(err) from None
+        if state not in _STATUS:
+            raise PermanentDriverError(f"job {handle.backend_job_id} is in unknown state "
+                                       f"{state}", code="UNKNOWN_JOB_STATE")
+        return _STATUS[state]
 
     def result(self, handle: Handle) -> RawResult:
         t0 = time.monotonic()
@@ -84,6 +89,8 @@ class QcssExecutionDriver:
         except QcssRpcError as err:
             raise classify(err) from None
         except TimeoutError as err:
+            with contextlib.suppress(Exception):
+                self.client.cancel(handle.backend_job_id)        # don't leave the timed-out job running
             raise PermanentDriverError(str(err), code="RESULT_TIMEOUT") from None
         counts = _bit_counts(chunks, handle.clbits)
         return RawResult(counts=counts, shots=sum(counts.values()), executed_as_submitted=True,

@@ -85,3 +85,40 @@ def test_changed_settings_are_written_and_the_job_is_pinned_to_the_new_epoch():
     fake = CountingInstrument(5.0e9)
     assert ctl._program(fake, _settings(5.1e9)) == 5     # type: ignore[arg-type]
     assert fake.writes == 1
+
+
+def test_a_qubit_without_acquisition_settings_keeps_its_calibrated_readout():
+    ctl = QcssController(address="127.0.0.1:1", channels={})
+    fake = CountingInstrument(5.0e9)
+    cur = fake.get_calibration
+
+    def with_readout(qubits=()):
+        snap = cur()
+        snap.qubits[0].readout_threshold, snap.qubits[0].readout_rotation_rad = 0.7, 0.3
+        return snap
+    fake.get_calibration = with_readout                    # type: ignore[method-assign]
+    written = []
+    fake.update_calibration = lambda snap, epoch: written.append(snap) or epoch + 1    # type: ignore[method-assign]
+    ctl._program(fake, _settings(5.1e9))                   # type: ignore[arg-type]
+    assert written[0].qubits[0].readout_threshold == 0.7 and written[0].qubits[0].readout_rotation_rad == 0.3
+
+
+def test_a_wait_timeout_cancels_the_job():
+    class Hanging(FakeInstrument):
+        cancelled = None
+
+        def wait(self, job_id, *, poll_s=0.2, timeout_s=None):
+            raise TimeoutError("too slow")
+
+        def cancel(self, job_id):
+            self.cancelled = job_id
+
+    ctl = QcssController(address="127.0.0.1:1", channels={})
+    fake = Hanging()
+    ctl._client = fake                                     # type: ignore[assignment]
+    p = Pulse(duration=40, amplitude=0.5, envelope=Gaussian(rel_sigma=0.2))
+    opts = ExecutionParameters(nshots=1, relaxation_time=1000, acquisition_type=AcquisitionType.DISCRIMINATION,
+                               averaging_mode=AveragingMode.SINGLESHOT)
+    with pytest.raises(TimeoutError):
+        ctl.play({}, [PulseSequence([("0/drive", p)])], opts, [])
+    assert fake.cancelled == "job-1"
