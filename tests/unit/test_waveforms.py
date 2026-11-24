@@ -76,3 +76,8 @@ def test_waveform_library_unique_memory():
 
     assert lib.count(g1) == 1
     assert lib.samples_used(g1) == 100
+
+
+def test_a_one_sample_drag_pulse_is_just_its_gaussian():
+    env = drag(1, None, 0.5)
+    assert env.shape == (1,) and env[0].imag == 0.0

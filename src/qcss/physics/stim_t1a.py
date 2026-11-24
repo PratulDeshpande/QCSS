@@ -25,7 +25,9 @@ _PAULI_NAMES = ["I", "X", "Y", "Z"]
 
 def _extract_qubits_from_str(s: str) -> tuple[int, ...]:
     nums = [int(m) for m in re.findall(r"q(\d+)", s)]
-    return tuple(nums) if nums else (0,)
+    if not nums:
+        raise ValueError(f"frame {s!r} names no qubit (expected 'q<index>')")
+    return tuple(nums)
 
 
 class StimT1a:

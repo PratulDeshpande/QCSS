@@ -69,3 +69,23 @@ def test_the_tones_phase_turns_the_signal_but_not_the_noise():
     b, _ = _mean_iq(ReadoutDrive(scale=1.0, offset_samples=150, drive_samples=1000, phase_rad=np.pi / 2))
     assert np.angle(b / a) == pytest.approx(np.pi / 2, abs=0.1)
     assert abs(b) == pytest.approx(abs(a), rel=0.05)
+
+
+def test_a_mean_convention_driven_readout_classifies_with_a_threshold_in_the_same_units():
+    ro = PhysicalReadout(SPEC, adc_dt_ns=DT, tof_ns=TOF_NS, readout_frequency_hz=7.0e9 - 0.5e6, convention="mean")
+    drive = ReadoutDrive(scale=1.0, offset_samples=150, drive_samples=1000)
+    levels = np.repeat([0, 1], 500)
+    r = ro.acquire(levels, N, 1e9, np.random.default_rng(3), drive=drive)
+    assert r.labels[levels == 0].mean() < 0.1 and r.labels[levels == 1].mean() > 0.9
+
+
+def test_given_weights_get_a_discriminator_calibrated_for_them_and_t1_does_not_grow_the_ideal_cache():
+    ro = _ro()
+    levels = np.repeat([0, 1], 500)
+    w = 3.0 * ro._calibration(N)[0]                                   # same shape, other scale
+    r = ro.acquire(levels, N, 1e9, np.random.default_rng(4), weights=w)
+    assert r.labels[levels == 0].mean() < 0.2 and r.labels[levels == 1].mean() > 0.8
+    ideal = SurrogateReadout(None)
+    for t1 in (1e4, 1.1e4, 1.2e4):
+        ideal.acquire(levels, N, t1, np.random.default_rng(5))
+    assert len(ideal._models) == 1

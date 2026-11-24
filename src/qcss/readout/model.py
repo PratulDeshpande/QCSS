@@ -106,15 +106,20 @@ class PhysicalReadout:
             self._cals[n] = self._calibrate(n)
         return self._cals[n]
 
-    def _calibrate(self, n: int) -> tuple[np.ndarray, object]:
-        base = self._base(n)
-        mean_b = -self.amp + np.sqrt(self.ro.p.kappa_rad_ns) * base          # reflection, per level
+    def _noiseless_window(self, n: int) -> np.ndarray:
+        mean_b = -self.amp + np.sqrt(self.ro.p.kappa_rad_ns) * self._base(n)          # reflection, per level
         rec = np.zeros((3, n + self.tof_samples), dtype=np.complex128)
         rec[:, self.tof_samples:] = mean_b
-        win = self._window(rec, n)
+        return self._window(rec, n)
+
+    def _calibrate(self, n: int) -> tuple[np.ndarray, object]:
+        win = self._noiseless_window(n)
         w = win[1] - win[0]
         w = w / max(np.max(np.abs(w)), 1e-30)                             # Qblox weights live in [-1, 1]
-        z = self._integrate(win, w)
+        return w, self._discriminator(self._integrate(win, w))
+
+    def _discriminator(self, z: np.ndarray) -> object:
+        """Split the noiseless integrated levels z."""
         if self.max_states <= 2:
             d = z[1] - z[0]
             rot = float(np.angle(d))
@@ -122,7 +127,7 @@ class PhysicalReadout:
                                        rotation_rad=rot)
         else:
             disc = MultistateDiscriminator(centroids=z[:min(self.max_states, 3)])
-        return w, disc
+        return disc
 
     def acquire(self, levels: np.ndarray, n: int, t1_ns: float, rng: np.random.Generator,
                 weights: np.ndarray | None = None, want_trace: bool = False,
@@ -136,7 +141,12 @@ class PhysicalReadout:
         w_auto, disc_auto = self._calibration(n)
         w = w_auto if weights is None else np.asarray(weights, dtype=np.complex128)
         z = self._integrate(self._window(traces, n), w)
-        disc = self.os_disc if self.os_disc is not None else disc_auto
+        if self.os_disc is not None:
+            disc = self.os_disc
+        elif weights is None:
+            disc = disc_auto
+        else:                                                        # disc_auto was calibrated for w_auto, not these
+            disc = self._discriminator(self._integrate(self._noiseless_window(n), w))
         labels = disc.classify(z).astype(np.uint8)                  # type: ignore[union-attr]
         return AcquireResult(labels, z, traces if want_trace else None)
 
@@ -165,6 +175,8 @@ class PhysicalReadout:
             rec = np.zeros((2, m + self.tof_samples), dtype=np.complex128)
             rec[:, self.tof_samples:] = -d + np.sqrt(self.ro.p.kappa_rad_ns) * base[:2]
             z01 = rec[:, start:start + n].sum(axis=1) * self.dt
+            if self.convention == "mean":
+                z01 = z01 / n                            # the same scaling as the shots it will classify
             rot = float(np.angle(z01[1] - z01[0]))
             disc = BinaryDiscriminator(float(np.real((z01[0] + z01[1]) / 2 * np.exp(-1j * rot))), rot)
         labels = disc.classify(z).astype(np.uint8)       # type: ignore[attr-defined]
@@ -212,9 +224,9 @@ class SurrogateReadout:
                 drive: ReadoutDrive | None = None) -> AcquireResult:
         if drive is not None and self.physical is not None:     # a board-played tone: the window as captured
             return self.physical.acquire(levels, n, t1_ns, rng, weights, want_trace, drive=drive)
-        t1_key = float(min(t1_ns, 1e18))
+        t1_key = 0.0                                               # no resonator data: T1 does not shape the model
         if self.physical is not None:
-            t1_key = float(f"{t1_key:.3g}")                        # drifted T1s share a calibration
+            t1_key = float(f"{float(min(t1_ns, 1e18)):.3g}")       # drifted T1s share a calibration
         labels, iq = self._model(n, t1_key).sample(np.asarray(levels), rng, want_iq=True)
         assert iq is not None                                      # want_iq=True always returns IQ
         return AcquireResult(labels.astype(np.uint8), iq, None)

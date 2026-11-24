@@ -23,7 +23,7 @@ def drag(n: int, sigma: float | None, beta_samples: float) -> np.ndarray:
     of the impersonated instrument -> enforced by a unit test (leakage must decrease).
     """
     i = gaussian(n, sigma)
-    q = beta_samples * np.gradient(i)                   # derivative per sample
+    q = beta_samples * np.gradient(i) if n > 1 else np.zeros(n)      # derivative per sample (none for one sample)
     return i + 1j * q
 
 
