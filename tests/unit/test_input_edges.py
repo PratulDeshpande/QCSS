@@ -174,9 +174,28 @@ async def test_reading_the_truth_runs_off_the_event_loop_under_the_device_lock(m
 
         def spy():
             seen.append((threading.get_ident(), ctx.device_lock._is_owned()))    # type: ignore[attr-defined]
-            return real()
+            return real()                         # the slow readout model must not hold the chip lock
         monkeypatch.setattr(ctx, "device_properties", spy)
         await svc.ReadTruth(apb.ReadTruthRequest(), cast(Any, MockServicerContext()))
-        assert seen == [(seen[0][0], True)] and seen[0][0] != loop_thread
+        assert seen == [(seen[0][0], False)] and seen[0][0] != loop_thread
     finally:
         await jobs.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(("err", "code"), [(ValueError("bad"), grpc.StatusCode.INVALID_ARGUMENT),
+                                           (KeyError("internal"), grpc.StatusCode.INTERNAL)])
+async def test_only_bad_input_is_the_clients_fault_a_stray_key_error_is_ours(err, code):
+    from qcss.adapters.grpc_server import ControlService
+
+    async def _validator(job: job_pb2.Job) -> None:
+        return None
+    jobs = JobManager(create_simulation_runner(IDEAL, DEV1, workers=1), _validator)
+    ctx = MockServicerContext()
+    try:
+        with pytest.raises(grpc.RpcError):
+            await ControlService(jobs, cast(Any, None))._abort_unexpected(cast(Any, ctx), "SubmitJob", err)
+        assert ctx.code == code
+    finally:
+        await jobs.close()
+        cast(Any, jobs._runner).pool.shutdown(cancel_futures=True)
