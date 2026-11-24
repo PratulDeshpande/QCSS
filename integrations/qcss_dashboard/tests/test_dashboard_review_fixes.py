@@ -135,3 +135,35 @@ def test_same_origin_websocket_is_accepted(tmp_path):
                                        poll_interval_s=0.1)), base_url=LOCAL)
     with c.websocket_connect("ws://127.0.0.1/api/events", headers={"Origin": "http://127.0.0.1"}) as ws:
         assert '"ts"' in ws.receive_text()
+
+
+# review round 3: bounded inputs, health disclosure, audited failures
+def test_health_without_the_token_reveals_nothing(tmp_path):
+    s = Settings(workspace=tmp_path, lab_target="127.0.0.1:1", admin_target="127.0.0.1:2", embedded_chassis=False,
+                 access_token="s3cret")
+    c = TestClient(create_app(s), base_url=LOCAL)
+    assert c.get("/api/health").json() == {"ok": True}
+    full = c.get("/api/health", headers={"X-Dashboard-Token": "s3cret"}).json()
+    assert full["lab"]["target"] == "127.0.0.1:1"
+
+
+def test_an_oversized_body_is_refused(client):
+    r = client.post("/api/configs/profile/validate", content=b"x" * 1_100_000,
+                    headers={**MUTATE, "Content-Type": "application/json"})
+    assert r.status_code == 413
+    r = client.post("/api/configs/profile/validate", json={"yaml": "a: " + "b" * 1_000_000}, headers=MUTATE)
+    assert r.status_code == 413
+
+
+def test_lab_run_bounds_its_numbers_and_restart_validates_time_scale(client):
+    assert client.post("/api/lab/run", json={"kind": "rabi", "shots": 10**9}, headers=MUTATE).status_code == 400
+    assert client.post("/api/lab/run", json={"kind": "rabi", "timeout_s": 1e9}, headers=MUTATE).status_code == 400
+    assert client.post("/api/chassis/restart", json={"time_scale": -1}, headers=MUTATE).status_code in (400, 409)
+
+
+def test_a_calibration_edit_needs_its_epoch_and_a_failure_is_audited(client):
+    r = client.put("/api/lab/calibration", json={"snapshot": {}}, headers=MUTATE)
+    assert r.status_code == 400 and "expected_epoch" in r.json()["detail"]
+    assert client.put("/api/lab/calibration", json={"snapshot": {}, "expected_epoch": 1}, headers=MUTATE).status_code == 503
+    entries = client.get("/api/audit").json()["entries"]
+    assert any(e["action"] == "update_calibration" and not e["ok"] for e in entries)

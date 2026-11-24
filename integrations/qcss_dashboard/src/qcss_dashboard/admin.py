@@ -92,25 +92,27 @@ class Links:
 
     # ------------------------------------------------------------------ lab link
     def lab(self, timeout_s: float = 30.0) -> QcssClient:
-        s = self.settings
-        if not s.lab_target:
+        with self.lock:                                   # adopt() rewrites target and token together
+            target, token = self.settings.lab_target, self.settings.lab_token
+        if not target:
             raise LinkError("no lab link configured", 503)
         try:
-            return QcssClient(s.lab_target, tls_ca=self._ca(), token=s.lab_token, timeout_s=timeout_s)
+            return QcssClient(target, tls_ca=self._ca(), token=token, timeout_s=timeout_s)
         except ValueError as exc:
             raise LinkError(str(exc), 400) from exc
 
     # ------------------------------------------------------------------ admin channel
     def admin(self, method: str, request: Any, timeout_s: float = 10.0) -> Any:
-        s = self.settings
-        if not s.admin_target:
+        with self.lock:                                   # adopt() rewrites target and token together
+            target, token = self.settings.admin_target, self.settings.admin_token
+        if not target:
             raise LinkError("no admin channel configured", 503)
-        if s.admin_token and s.ca_file is None and not is_local_address(s.admin_target):
-            raise LinkError(f"refusing to send the admin token in cleartext to {s.admin_target}", 400)
+        if token and self.settings.ca_file is None and not is_local_address(target):
+            raise LinkError(f"refusing to send the admin token in cleartext to {target}", 400)
         ca = self._ca()
-        channel = (grpc.secure_channel(s.admin_target, grpc.ssl_channel_credentials(ca)) if ca
-                   else grpc.insecure_channel(s.admin_target))
-        md = (("authorization", f"Bearer {s.admin_token}"),) if s.admin_token else ()
+        channel = (grpc.secure_channel(target, grpc.ssl_channel_credentials(ca)) if ca
+                   else grpc.insecure_channel(target))
+        md = (("authorization", f"Bearer {token}"),) if token else ()
         try:
             with channel:
                 return getattr(apbg.AdminServiceStub(channel), method)(request, metadata=md, timeout=timeout_s)

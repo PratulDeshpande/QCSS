@@ -38,6 +38,14 @@ def _kind(kind: str) -> tuple[str, type[BaseModel]]:
     return KINDS[kind]
 
 
+MAX_YAML_CHARS = 1_000_000
+
+
+def _check_size(text: str) -> None:
+    if len(text) > MAX_YAML_CHARS:
+        raise ConfigError(f"the YAML is too large ({len(text)} characters; the limit is {MAX_YAML_CHARS})", 413)
+
+
 def _flatten(data: Any, prefix: str = "") -> dict[str, Any]:
     out: dict[str, Any] = {}
     if isinstance(data, dict):
@@ -107,6 +115,7 @@ class ConfigStore:
 
     def validate(self, kind: str, text: str) -> dict[str, Any]:
         _, model = _kind(kind)
+        _check_size(text)
         try:
             raw = yaml.safe_load(text)
         except yaml.YAMLError as exc:
@@ -128,6 +137,7 @@ class ConfigStore:
 
     def diff(self, kind: str, base: str, text: str) -> dict[str, Any]:
         _, model = _kind(kind)
+        _check_size(text)
         p, _ = self.path(kind, base)
         before_text = p.read_text(encoding="utf-8")
         before = _flatten(yaml.safe_load(before_text) or {})
