@@ -15,15 +15,11 @@ from qcss.core.errors import TimebaseError
 
 
 def _as_fraction_hz(rate_hz: float | Fraction | str) -> Fraction:
-    # Fraction(str) is exact for decimal strings such as "430.08e6"; floats are
+    # Fraction(str) is exact for decimal strings, scientific notation included ("430.08e6"); floats are
     # limited to a sane denominator so 2.4e9 does not become a 52-bit monster.
     if isinstance(rate_hz, Fraction):
         return rate_hz
     if isinstance(rate_hz, str):
-        # Handle scientific notation in strings like "1e9" or "430.08e6"
-        if "e" in rate_hz.lower():
-            f_val = float(rate_hz)
-            return Fraction(f_val).limit_denominator(1_000_000_000)
         return Fraction(rate_hz)
     return Fraction(rate_hz).limit_denominator(1_000_000_000)
 

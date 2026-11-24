@@ -148,3 +148,18 @@ def test_results_take_qibolabs_shape(acq, avg, shape):
     assert res.shape == shape == o.results_shape([[sw]])
     if acq is AcquisitionType.DISCRIMINATION and avg is AveragingMode.CYCLIC:
         np.testing.assert_allclose(res, [0.25, 0.75])
+
+
+def test_sweeping_a_readout_probe_pulse_is_refused_not_silently_flat():
+    ro = mz()
+    seq = PulseSequence([("0/acquisition", ro)])
+    sw = Sweeper(parameter=Parameter.amplitude, values=np.array([0.1, 0.2]), pulses=[ro.probe])
+    with pytest.raises(ValueError, match="readout probe"):
+        translate(seq, CONFIGS, opts(), [[sw]], los=LOS)
+
+
+def test_an_acquisition_that_is_not_a_whole_number_of_4_ticks_is_refused():
+    seq = PulseSequence([("0/acquisition", Readout(acquisition=Acquisition(duration=2002),
+                                                    probe=mz().probe))])
+    with pytest.raises(ValueError, match="multiples of 4 ticks"):
+        translate(seq, CONFIGS, opts(), [], los=LOS)

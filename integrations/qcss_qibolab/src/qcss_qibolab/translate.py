@@ -100,6 +100,9 @@ def _point(sequence: PulseSequence, sweepers: list[list[Any]], idx: tuple[int, .
 
     def upd(p: Any) -> Any:
         if isinstance(p, Readout):
+            if p.probe.id in pulse_updates:
+                raise ValueError("sweeping a readout probe pulse is not supported by this instrument "
+                                 "(only the acquisition is played, so every point would be identical)")
             return p.model_copy(update={"probe": upd(p.probe), "acquisition": upd(p.acquisition)})
         return p.model_copy(update=pulse_updates[p.id]) if p.id in pulse_updates else p
     return [(ch, upd(p)) for ch, p in sequence.align_to_delays()], config_updates
@@ -164,8 +167,14 @@ def translate(sequence: PulseSequence, configs: Mapping[str, Any], options: Exec
                 acq = p.acquisition if isinstance(p, Readout) else p
                 key = str(acq.id)
                 acquisitions[key] = acq.id
+                if len(acquisitions) > 15:
+                    raise ValueError("at most 15 distinct acquisitions fit one job (register_index would wrap)")
+                ticks = b.tick(acq.duration)
+                if ticks < 4 or ticks % 4:
+                    raise ValueError(f"acquisition duration {acq.duration} ns is {ticks} ticks; the instrument "
+                                     "integrates in multiples of 4 ticks (minimum 4)")
                 ins.add(start_tick=b.tick(t), acquire=job_pb2.Acquire(
-                    channel_id=_cid(q, "acquisition"), integration_ticks=max(4, 4 * (b.tick(acq.duration) // 4)),
+                    channel_id=_cid(q, "acquisition"), integration_ticks=ticks,
                     mode=mode, register_index=len(acquisitions) % 15, result_key=key))
             elif isinstance(p, Pulse) and role != "probe":     # a probe tone is part of the readout
                 ins.add(start_tick=b.tick(t), play=job_pb2.Play(

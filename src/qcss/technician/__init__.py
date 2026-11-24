@@ -95,6 +95,15 @@ class Technician:
         problem = _impossible(data)
         if problem:
             return False, f"\nupdated parameters.json is not physically possible: {problem}"
+        for name in CALIBRATION_FILES[1:]:             # every other file that _install will put in place
+            if not (new / name).exists():
+                continue
+            try:
+                ok = _finite(json.loads((new / name).read_text(encoding="utf-8")))
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                return False, f"\nupdated {name} does not parse"
+            if not ok:
+                return False, f"\nupdated {name} holds NaN or infinite values: the fit failed"
         return True, ""
 
     def _install(self, new: Path) -> list[str]:

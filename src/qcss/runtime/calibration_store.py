@@ -7,8 +7,9 @@ acquisition delay); the simulator applies it on top of the hidden truth.
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 
-from qcss.core.errors import QCSSError
+from qcss.core.errors import HardwareValidationError, QCSSError
 from qcss.v1 import calibration_pb2
 
 
@@ -23,6 +24,8 @@ class CalibrationStore:
         if defaults is not None:
             self._snap.CopyFrom(defaults)
         self._os_set: set[int] = set()            # qubits whose calibration the OS has written
+        # (field path, problem) for each setting the instrument would refuse; set by who knows the instrument
+        self.check: Callable[[calibration_pb2.CalibrationSnapshot], list[tuple[str, str]]] | None = None
 
     @property
     def epoch(self) -> int:
@@ -49,6 +52,8 @@ class CalibrationStore:
 
     def update(self, snapshot: calibration_pb2.CalibrationSnapshot, expected_epoch: int) -> int:
         """Replace the listed qubits' calibration if expected_epoch is current; returns the new epoch."""
+        if self.check is not None and (violations := self.check(snapshot)):
+            raise HardwareValidationError(violations)
         with self._lock:
             if expected_epoch != self._snap.calibration_epoch:
                 raise CalibrationEpochError(

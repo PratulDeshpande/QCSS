@@ -4,10 +4,15 @@ import { LineChart } from "../charts";
 import { useRegistry } from "../registry";
 import { useWorkbench } from "../state";
 import { Badge, Button, FieldExplain, NumberField, Panel, Select, StateBox, Tabs, fmt } from "../ui";
+import { useQubitOptions } from "./common";
 import { ExperimentForm, ExperimentResult, type ExpParams } from "./LabBench";
 
 type Override = { model: string; field: string; qubit: number; value: number };
 const SWEEPABLE = ["QubitSpec", "ResonatorSpec", "DynamicsSpec", "CouplerSpec"];
+
+/** "10, 20,, x" -> [10, 20]: blank and non-numeric entries are dropped (Number("") would silently be 0). */
+export const parseSweepValues = (text: string): number[] =>
+  text.split(",").map((s) => s.trim()).filter((s) => s !== "").map(Number).filter(Number.isFinite).slice(0, 8);
 
 function applyOverride(data: Json, o: Override): Json {
   const d = structuredClone(data);
@@ -34,12 +39,13 @@ function FactorPicker({ o, set }: { o: Override; set: (o: Override) => void }) {
   const { reg, byKey } = useRegistry();
   const fields = (reg?.fields ?? []).filter((f) => SWEEPABLE.includes(f.model) && (f.type === "float" || f.type === "int") && !f.field.endsWith("index") && !f.inert);
   const doc = byKey.get(`${o.model}.${o.field}`);
+  const qubits = useQubitOptions();
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-end gap-3">
         <Select value={`${o.model}.${o.field}`} onChange={(k) => { const [m, f] = k.split("."); set({ ...o, model: m, field: f }); }} label="factor"
           options={fields.map((f) => ({ value: f.key, label: `${f.model}.${f.field}${f.unit ? ` (${f.unit})` : ""}` }))} />
-        {o.model !== "DynamicsSpec" && <Select value={String(o.qubit)} onChange={(v) => set({ ...o, qubit: Number(v) })} options={["0", "1", "2", "3", "4"]} label="of qubit" />}
+        {o.model !== "DynamicsSpec" && <Select value={String(o.qubit)} onChange={(v) => set({ ...o, qubit: Number(v) })} options={qubits} label="of qubit" />}
       </div>
       {doc && <div className="rounded border border-line bg-s2/40 p-2"><FieldExplain doc={doc} compact /></div>}
     </div>
@@ -55,7 +61,7 @@ function Compare({ exp }: { exp: ExpParams }) {
     try {
       const body = { ...exp, profile: wb.profile, seed: 7 };
       const a = await runWith(body, wb.device, []);
-      const b = await runWith(body, wb.device, [{ ...o, qubit: exp.qubit }]);
+      const b = await runWith(body, wb.device, [o]);
       setState({ a, b, busy: false });
     } catch (e) { setState({ err: e, busy: false }); }
   };
@@ -88,13 +94,16 @@ function Sweep({ exp }: { exp: ExpParams }) {
   const [out, setOut] = useState<{ v: number; r: Json }[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<unknown>(null);
+  const [ran, setRan] = useState<{ field: string; unit?: string }>({ field: "" });   // what the plotted sweep ran with, not the picker now
   const go = async () => {
     setBusy(true); setErr(null); setOut([]);
-    const vs = values.split(",").map((s) => Number(s.trim())).filter(Number.isFinite).slice(0, 8);
+    const vs = parseSweepValues(values);
+    setRan({ field: o.field, unit: byKey.get(`${o.model}.${o.field}`)?.unit });
     try {
+      if (!vs.length) throw new Error("enter at least one number in values");
       const acc: { v: number; r: Json }[] = [];
       for (const v of vs) {
-        acc.push({ v, r: await runWith({ ...exp, profile: wb.profile, seed: 7 }, wb.device, [{ ...o, qubit: exp.qubit, value: v }]) });
+        acc.push({ v, r: await runWith({ ...exp, profile: wb.profile, seed: 7 }, wb.device, [{ ...o, value: v }]) });
         setOut([...acc]);
       }
     } catch (e) { setErr(e); }
@@ -103,7 +112,6 @@ function Sweep({ exp }: { exp: ExpParams }) {
   const metrics = out[0] ? Object.keys(out[0].r.fit ?? {}).filter((k) => typeof out[0].r.fit[k] === "number") : [];
   const [metric, setMetric] = useState("");
   const m = metric || metrics[0];
-  const doc = byKey.get(`${o.model}.${o.field}`);
   return (
     <Panel title="Sweep a simulator factor" subtitle="Run the experiment once per value and plot what the lab would measure"
       actions={<Button kind="primary" onClick={go} disabled={busy}>{busy ? `Simulating ${out.length + 1}…` : "▶ Sweep"}</Button>}>
@@ -116,13 +124,13 @@ function Sweep({ exp }: { exp: ExpParams }) {
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">
             <div>
               <Select value={m ?? ""} onChange={setMetric} options={metrics} label="fitted metric" />
-              {m && <LineChart x={out.map((o2) => o2.v)} xLabel={`${o.field}${doc?.unit ? ` (${doc.unit})` : ""}`} yLabel={m} height={240}
+              {m && <LineChart x={out.map((o2) => o2.v)} xLabel={`${ran.field}${ran.unit ? ` (${ran.unit})` : ""}`} yLabel={m} height={240}
                 lines={[{ label: m, y: out.map((o2) => o2.r.fit?.[m] ?? null), points: true }]} />}
             </div>
             <div>
               {out.length > 0 && out[0].r.kind !== "single_shot" && (
                 <LineChart x={out[0].r.axis.values} xLabel={out[0].r.axis.name} yLabel="P(|1⟩)" height={240} yRange={[0, 1]}
-                  lines={out.map((o2) => ({ label: `${o.field} = ${fmt(o2.v, 3)}`, y: o2.r.p1 }))} />
+                  lines={out.map((o2) => ({ label: `${ran.field} = ${fmt(o2.v, 3)}`, y: o2.r.p1 }))} />
               )}
             </div>
           </div>

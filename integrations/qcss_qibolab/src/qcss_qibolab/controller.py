@@ -5,6 +5,7 @@ from the platform's configs and plays sequences; it never decides physics or cal
 """
 from __future__ import annotations
 
+import contextlib
 import os
 from pathlib import Path
 from typing import Any
@@ -61,10 +62,15 @@ class QcssController(Controller):
             tr = translate(seq, configs, options, sweepers, los=self._los, tick_per_ns=self._tick_per_ns,
                            sampling_rate=self._sampling_rate)
             # pin the job to the settings just uploaded: if another client reprograms the instrument
-            # before it runs, it is refused (and resubmitted) rather than run with someone else's settings
+            # before it runs, it is refused rather than run with someone else's settings
             tr.job.expected_calibration_epoch = self._program(client, tr.calibration)
             job_id, _ = self._call(client.submit, tr.job)
-            st = self._call(client.wait, job_id, timeout_s=self.timeout_s)
+            try:
+                st = self._call(client.wait, job_id, timeout_s=self.timeout_s)
+            except TimeoutError:
+                with contextlib.suppress(Exception):
+                    client.cancel(job_id)                  # don't leave the timed-out job running on the instrument
+                raise
             if st.state != result_pb2.JOB_STATE_COMPLETED:
                 raise RuntimeError(f"{self.signature}: job {job_id} ended "
                                    f"{result_pb2.JobState.Name(st.state).removeprefix('JOB_STATE_')}: {st.message}")
@@ -81,7 +87,10 @@ class QcssController(Controller):
             if qc.qubit_index in by_q:
                 merged.CopyFrom(by_q[qc.qubit_index])
             merged.MergeFrom(qc)
-            merged.readout_rotation_rad, merged.readout_threshold = qc.readout_rotation_rad, qc.readout_threshold
+            if qc.readout_rotation_rad or qc.readout_threshold:      # both 0 = no acquisition config: keep the calibrated pair
+                merged.readout_rotation_rad, merged.readout_threshold = qc.readout_rotation_rad, qc.readout_threshold
+        if all(by_q.get(qc.qubit_index) == qc for qc in upload.qubits):
+            return int(current.calibration_epoch)        # nothing to change: a write would stale other clients' pins
         return int(self._call(client.update_calibration, upload, current.calibration_epoch))
 
     def _call(self, fn: Any, *args: Any, **kwargs: Any) -> Any:

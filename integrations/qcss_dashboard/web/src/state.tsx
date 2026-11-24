@@ -14,6 +14,7 @@ type Ctx = {
   explain: { data?: Json; error: unknown; isPending: boolean; run: () => void };
   live: Json | null; liveError: string | null;
 };
+const RESETS_EXPLAIN = ["profile", "device", "profileYaml", "deviceYaml", "job"];
 const WorkbenchContext = createContext<Ctx | null>(null);
 
 export function WorkbenchProvider({ children }: { children: ReactNode }) {
@@ -25,7 +26,6 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
     const s = settings.data;
     if (s?.chassis_profile) setWb((w) => ({ ...w, profile: s.chassis_profile, device: s.chassis_device ?? w.device }));
   }, [settings.data]);
-  const set = useCallback((p: Partial<Workbench>) => setWb((w) => ({ ...w, ...p })), []);
   const configBody = useCallback((): Json => ({
     profile: wb.profile, device: wb.device, profile_yaml: wb.profileYaml, device_yaml: wb.deviceYaml,
   }), [wb.profile, wb.device, wb.profileYaml, wb.deviceYaml]);
@@ -34,6 +34,12 @@ export function WorkbenchProvider({ children }: { children: ReactNode }) {
       ...configBody(), job: wb.job, tier: wb.tier, seed: wb.seed, shots: wb.shots, point: wb.point,
     }),
   });
+  // A result belongs to the profile, device and job it ran with: drop it when any of them changes.
+  const resetExplain = m.reset;
+  const set = useCallback((p: Partial<Workbench>) => {
+    if (RESETS_EXPLAIN.some((k) => k in p)) resetExplain();
+    setWb((w) => ({ ...w, ...p }));
+  }, [resetExplain]);
   const live = useLive();
   const value = useMemo<Ctx>(() => ({
     wb, set, configBody,
@@ -60,7 +66,14 @@ function useLive(): { data: Json | null; error: string | null } {
     let closed = false;
     const connect = () => {
       ws = new WebSocket(eventsUrl());
-      ws.onmessage = (e) => { retry.current = 0; setError(null); setData(JSON.parse(e.data)); };
+      ws.onmessage = (e) => {
+        try {
+          const d = JSON.parse(e.data);
+          retry.current = 0; setError(null); setData(d);
+        } catch {
+          setError("live link sent an unreadable message");   // keep the last good data, but say it may be stale
+        }
+      };
       ws.onclose = () => {
         if (closed) return;
         setError("live link lost — reconnecting");

@@ -10,8 +10,10 @@ from __future__ import annotations
 
 import contextlib
 import hmac
+import logging
 import pathlib
 import threading
+import time
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Annotated, Any
 from urllib.parse import urlsplit
@@ -23,6 +25,7 @@ from google.protobuf.json_format import ParseError
 
 import qcss
 from qcss.core.errors import TierRoutingError
+from qcss.core.limits import MAX_TIME_SCALE
 from qcss.runtime.calibration_store import CalibrationEpochError
 from qcss_dashboard import __version__
 from qcss_dashboard.admin import LinkError, Links, admin_action, admin_state, inspect_job
@@ -48,6 +51,9 @@ EXAMPLES = pathlib.Path(qcss.__file__).resolve().parents[2] / "examples" / "jobs
 SANDBOX_SLOTS = threading.BoundedSemaphore(2)      # heavy simulations at most two at a time (laptop-friendly)
 SANDBOX_WAIT_S = 5.0                               # then answer 503 instead of parking a worker thread
 LOOPBACK_NAMES = ("127.0.0.1", "localhost", "::1")
+MAX_BODY_BYTES = 1_000_000                         # configs are small YAML; refuse anything bigger
+PROBE_TTL_S = 2.0                                  # /api/health re-probes the links at most this often
+log = logging.getLogger(__name__)
 
 
 @contextlib.contextmanager
@@ -130,6 +136,8 @@ def create_app(config: Settings | None = None) -> FastAPI:
     @app.middleware("http")
     async def guards(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
         path = request.url.path
+        if int(request.headers.get("content-length") or 0) > MAX_BODY_BYTES:
+            return JSONResponse({"detail": "request body too large"}, status_code=413)
         if not host_ok(request.url.hostname):           # DNS-rebinding guard: only names this bridge answers to
             return JSONResponse({"detail": "unknown host"}, status_code=400)
         if (path.startswith("/api/") and path not in OPEN_PATHS
@@ -154,6 +162,7 @@ def create_app(config: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(ValueError)
     async def _value_error(_: Request, exc: ValueError) -> JSONResponse:
+        log.warning("ValueError mapped to 400", exc_info=exc)        # an internal bug looks the same as bad input
         return JSONResponse({"detail": str(exc)}, status_code=400)
 
     @app.exception_handler(ParseError)
@@ -162,6 +171,7 @@ def create_app(config: Settings | None = None) -> FastAPI:
 
     @app.exception_handler(TypeError)
     async def _type_error(_: Request, exc: TypeError) -> JSONResponse:
+        log.warning("TypeError mapped to 400", exc_info=exc)
         return JSONResponse({"detail": f"invalid input: {exc}"}, status_code=400)
 
     @app.exception_handler(TierRoutingError)
@@ -173,10 +183,15 @@ def create_app(config: Settings | None = None) -> FastAPI:
         return JSONResponse({"detail": str(exc)}, status_code=409)
 
     # ------------------------------------------------------------------ meta
+    probed = [float("-inf")]
+
     @app.get("/api/health")
-    def health() -> dict[str, Any]:
-        if settings.lab_target or settings.admin_target:
+    def health(request: Request) -> dict[str, Any]:
+        if not token_ok(request.headers.get(TOKEN_HEADER) or ""):
+            return {"ok": True}                              # targets and gRPC errors are for authenticated callers
+        if (settings.lab_target or settings.admin_target) and time.monotonic() - probed[0] > PROBE_TTL_S:
             links.probe()
+            probed[0] = time.monotonic()
         return {"ok": True, "version": __version__,
                 "lab": links.lab_status() if settings.lab_target else None,
                 "admin": links.admin_status() if settings.admin_target else None}
@@ -335,15 +350,23 @@ def create_app(config: Settings | None = None) -> FastAPI:
 
     @app.put("/api/lab/calibration")
     def lab_update_calibration(body: JsonBody) -> dict[str, Any]:
-        out = bench.update_calibration(body.get("snapshot") or {}, int(body.get("expected_epoch", 0)))
-        audit.record("update_calibration", {"expected_epoch": body.get("expected_epoch")}, True,
-                     f"epoch {out['new_epoch']}")
+        if body.get("expected_epoch") is None:
+            raise ValueError("expected_epoch is required (the calibration epoch the edit was based on)")
+        args = {"expected_epoch": body["expected_epoch"]}
+        try:
+            out = bench.update_calibration(body.get("snapshot") or {}, int(body["expected_epoch"]))
+        except Exception as exc:
+            audit.record("update_calibration", args, False, str(exc))
+            raise
+        audit.record("update_calibration", args, True, f"epoch {out['new_epoch']}")
         return out
 
     @app.post("/api/lab/run")
     def lab_run(body: JsonBody) -> dict[str, Any]:
         profile = (links.embedded.chassis.config.profile if links.embedded is not None
                    else store.load_profile(settings.chassis_profile))
+        body = {**body, "points": _num(body, "points", 21, 2, 101, int), "shots": _num(body, "shots", 500, 1, 5000, int),
+                "timeout_s": _num(body, "timeout_s", 900.0, 1.0, 3600.0)}
         return bench.run_experiment(profile, body)
 
     @app.get("/api/lab/jobs")
@@ -362,7 +385,7 @@ def create_app(config: Settings | None = None) -> FastAPI:
             raise ConfigError("only the embedded chassis can be restarted from the dashboard", 409)
         profile = str(body.get("profile") or settings.chassis_profile)
         device = body.get("device", settings.chassis_device)
-        ts = float(body.get("time_scale", settings.chassis_time_scale))
+        ts = _num(body, "time_scale", settings.chassis_time_scale, 0.0, MAX_TIME_SCALE)
         store.load_profile(profile)                       # fail before stopping the running chassis
         store.load_device(device)
         try:

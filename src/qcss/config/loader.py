@@ -4,7 +4,9 @@ from __future__ import annotations
 import pathlib
 from typing import Any
 
+import click
 import yaml
+from pydantic import BaseModel, ValidationError
 
 from qcss.config.device import DeviceSpec
 from qcss.config.profile import HardwareProfile
@@ -15,14 +17,22 @@ def load_yaml(path: str | pathlib.Path) -> dict[str, Any]:
         return yaml.safe_load(f)
 
 
+def _validated[M: BaseModel](model: type[M], path: str | pathlib.Path) -> M:
+    try:
+        return model.model_validate(load_yaml(path))
+    except ValidationError as err:
+        lines = [f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in err.errors()]
+        raise click.ClickException(f"{path} is not a valid {model.__name__}:\n  " + "\n  ".join(lines)) from err
+    except yaml.YAMLError as err:
+        raise click.ClickException(f"{path} is not valid YAML: {err}") from err
+
+
 def load_profile(path: str | pathlib.Path) -> HardwareProfile:
-    data = load_yaml(path)
-    return HardwareProfile.model_validate(data)
+    return _validated(HardwareProfile, path)
 
 
 def load_device(path: str | pathlib.Path) -> DeviceSpec:
-    data = load_yaml(path)
-    return DeviceSpec.model_validate(data)
+    return _validated(DeviceSpec, path)
 
 
 def get_unverified_fields(profile: HardwareProfile) -> list[str]:

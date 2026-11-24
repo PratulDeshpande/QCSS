@@ -12,6 +12,8 @@ class PredistortionError(ValueError):
 
 def inverse_exp_sos(amplitude: float, tau_s: float, fs_hz: float) -> np.ndarray:
     """Inverse of ((1+A) - (p+A) z^-1)/(1 - p z^-1)  ->  (1 - p z^-1)/((1+A) - (p+A) z^-1)."""
+    if amplitude <= -1.0:
+        raise PredistortionError(f"singular inverse for A={amplitude}")
     p = np.exp(-1.0 / (tau_s * fs_hz))
     b0, b1 = 1.0 / (1.0 + amplitude), -p / (1.0 + amplitude)
     a1 = -(p + amplitude) / (1.0 + amplitude)
@@ -42,8 +44,11 @@ class QbloxRTP:
                 raise PredistortionError(f"amplitude {a} outside [-1, 1)")
         if fir is not None:
             fir = np.asarray(fir, dtype=np.float64)
-            if len(fir) != self.FIR_TAPS or fir.min() < self.FIR_RANGE[0] or fir.max() >= self.FIR_RANGE[1]:
+            if (len(fir) != self.FIR_TAPS or not np.isfinite(fir).all()
+                    or fir.min() < self.FIR_RANGE[0] or fir.max() >= self.FIR_RANGE[1]):
                 raise PredistortionError("FIR must have 32 taps in [-2, 2)")
+        if ihp_tau_s is not None and not (np.isfinite(ihp_tau_s) and ihp_tau_s >= 0):
+            raise PredistortionError(f"high-pass tau {ihp_tau_s} s must be finite and not negative")
         sos = [inverse_exp_sos(a, tau, self.fs) for a, tau in exp_stages]
         if ihp_tau_s:                 # inverse of the bias-tee high-pass: (1 - p z^-1)/(1 - z^-1)
             p = np.exp(-1.0 / (ihp_tau_s * self.fs))

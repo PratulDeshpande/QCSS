@@ -5,6 +5,8 @@ devices behave exactly as specified.
 """
 from __future__ import annotations
 
+import math
+
 import numpy as np
 
 from qcss.config.device import DeviceSpec
@@ -13,6 +15,12 @@ from qcss.device.drift import LogNormalDrift, OneOverFNoise
 from qcss.device.labclock import LabClock
 from qcss.device.scenarios import InjectedBurst, Scenarios
 from qcss.device.tls import TLSBath, TLSDefect
+
+
+def _finite(**values: float) -> None:
+    for name, v in values.items():
+        if not math.isfinite(v):
+            raise ValueError(f"{name} must be finite")
 
 
 class DeviceState:
@@ -85,6 +93,7 @@ class DeviceState:
         self.scenarios.dead.discard(self._row(qubit_index))
 
     def drift_step(self, qubit_index: int, df_ghz: float = 0.0, t1_factor: float = 1.0) -> None:
+        _finite(df_ghz=df_ghz, t1_factor=t1_factor)
         if t1_factor <= 0:
             raise ValueError("t1_factor must be > 0")
         r = self._row(qubit_index)
@@ -94,6 +103,7 @@ class DeviceState:
     def tls_collision(self, qubit_index: int, g_mhz: float = 0.5, gamma_mhz: float = 1.0,
                       detuning_mhz: float = 0.0) -> None:
         """A defect drifts into resonance with the qubit where it sits now."""
+        _finite(g_mhz=g_mhz, gamma_mhz=gamma_mhz, detuning_mhz=detuning_mhz)
         r = self._row(qubit_index)
         f_now = self.snapshot()[0][r]
         self.scenarios.tls.append((r, TLSDefect(f_ghz=f_now + 1e-3 * detuning_mhz, g_mhz=g_mhz,
@@ -101,6 +111,7 @@ class DeviceState:
 
     def burst(self, qubit_index: int, peak_gamma_per_us: float = 2.0) -> None:
         """A cosmic-ray hit centred on the qubit, now (already past its ~10 us rise)."""
+        _finite(peak_gamma_per_us=peak_gamma_per_us)
         self.scenarios.bursts.append(InjectedBurst(self._row(qubit_index), self.clock.t_s, peak_gamma_per_us))
 
     def freeze(self, frozen: bool) -> None:
@@ -132,26 +143,59 @@ class DeviceState:
         return out
 
     def load_dict(self, data: dict) -> None:
-        """Restore what to_dict() saved into this freshly built state of the same device."""
+        """Restore what to_dict() saved into this freshly built state of the same device.
+
+        Everything is parsed and checked into locals first, so a bad file leaves the state untouched.
+        """
         from qcss.device.bursts import Burst
-        self.clock.t_s = float(data["clock_s"])
-        self.rng.bit_generator.state = data["rng"]
+        n = len(self.device.qubits)
+
+        def vec(xs: object, what: str) -> list[float]:
+            out = [float(x) for x in xs]                    # type: ignore[attr-defined]
+            if len(out) != n or not all(math.isfinite(x) for x in out):
+                raise ValueError(f"saved {what} must be {n} finite numbers")
+            return out
+
+        clock_s = float(data["clock_s"])
         sc = data["scenarios"]
-        self.scenarios = Scenarios(len(self.device.qubits), frozen=bool(sc["frozen"]), dead=set(sc["dead"]),
-                                   f_offset_ghz=list(sc["f_offset_ghz"]), t1_factor=list(sc["t1_factor"]),
-                                   tls=[(int(r), TLSDefect(**d)) for r, d in sc["tls"]],
-                                   bursts=[InjectedBurst(**b) for b in sc["bursts"]])
+        dead = {int(r) for r in sc["dead"]}
+        tls = [(int(r), TLSDefect(**d)) for r, d in sc["tls"]]
+        injected = [InjectedBurst(**b) for b in sc["bursts"]]
+        if not math.isfinite(clock_s) or not all(0 <= r < n for r in dead | {r for r, _ in tls}
+                                                 | {b.row for b in injected}):
+            raise ValueError("saved device state has a bad clock or qubit index")
+        f_off, t1_fac = vec(sc["f_offset_ghz"], "f_offset_ghz"), vec(sc["t1_factor"], "t1_factor")
+        if any(x <= 0 for x in t1_fac):
+            raise ValueError("saved t1_factor must be > 0")
+        t1_ou = f_ou = baths = burst_state = None
+        if self.enabled:
+            if "t1_ou" not in data:
+                raise ValueError("saved device state has no drift (it was saved with dynamics off)")
+            t1_ou = vec(data["t1_ou"], "t1_ou")
+            f_ou = [[float(x) for x in xs] for xs in data["f_ou"]]
+            baths = [[TLSDefect(**d) for d in defects] for defects in data["tls_baths"]]
+            if len(f_ou) != n or len(baths) != n or any(len(xs) != len(fn.parts) for xs, fn in zip(f_ou, self.f_noises, strict=True)):
+                raise ValueError("saved device state does not match this device")
+            if self.bursts is not None and "bursts" in data:
+                b = data["bursts"]
+                next_s = None if b["next_s"] is None else float(b["next_s"])
+                arrivals = [float(t) for t in b["arrivals"]]
+                events = [Burst(float(t0), np.asarray(xy, dtype=np.float64), float(peak)) for t0, xy, peak in b["events"]]
+                if (next_s is not None and not math.isfinite(next_s)) or not all(math.isfinite(t) for t in arrivals):
+                    raise ValueError("saved burst times must be finite")
+                burst_state = (next_s, arrivals, events)
+        self.rng.bit_generator.state = data["rng"]      # raises before anything else changes if malformed
+        self.clock.t_s = clock_s
+        self.scenarios = Scenarios(n, frozen=bool(sc["frozen"]), dead=dead, f_offset_ghz=f_off, t1_factor=t1_fac,
+                                   tls=tls, bursts=injected)
         if not self.enabled:
             return
-        for d, x in zip(self.t1_drifts, data["t1_ou"], strict=True):
-            d.ou.x = float(x)
-        for fn, xs in zip(self.f_noises, data["f_ou"], strict=True):
+        for d, x in zip(self.t1_drifts, t1_ou, strict=True):
+            d.ou.x = x
+        for fn, xs in zip(self.f_noises, f_ou, strict=True):
             for p, x in zip(fn.parts, xs, strict=True):
-                p.x = float(x)
-        for bath, defects in zip(self.tls_baths, data["tls_baths"], strict=True):
-            bath.defects = [TLSDefect(**d) for d in defects]
-        if self.bursts is not None and "bursts" in data:
-            b = data["bursts"]
-            self.bursts._next_s = b["next_s"]
-            self.bursts.arrival_times_s = list(b["arrivals"])
-            self.bursts.events = [Burst(t0, np.asarray(xy, dtype=np.float64), peak) for t0, xy, peak in b["events"]]
+                p.x = x
+        for bath, defects in zip(self.tls_baths, baths, strict=True):
+            bath.defects = defects
+        if burst_state is not None:
+            self.bursts._next_s, self.bursts.arrival_times_s, self.bursts.events = burst_state

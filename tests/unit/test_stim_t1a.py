@@ -123,3 +123,9 @@ def test_stim_t1a_noisy_bitstring_distribution_vs_t1b():
     # Chi-square test on Stim samples against expected distribution
     res_stim = chisquare(counts_stim, f_exp=expected_counts)
     assert res_stim.pvalue > 0.01, f"Stim distribution rejected: p={res_stim.pvalue}"
+
+
+def test_a_frame_that_names_no_qubit_is_refused_not_applied_to_qubit_0():
+    sim = StimT1a(2)
+    with pytest.raises(ValueError, match="names no qubit"):
+        sim.frame_op(FrameOp(path="main[0]", frame_id="frame_a", start=10, kind="shift", value=np.pi), tick=10)

@@ -58,15 +58,20 @@ class FluxChain:
     def _idle(f, n: int) -> None:
         if f is None or n <= 0:
             return
-        if getattr(f, "iir", None) is not None:
-            f.iir.fast_forward_zeros(n)
-        if getattr(f, "fir", None) is not None:
-            f.fir(np.zeros(min(n, len(f.fir.b))))
+        iir, fir = getattr(f, "iir", None), getattr(f, "fir", None)
+        k = min(n, len(fir.b)) if fir is not None else 0      # the FIR sees the IIR's decaying tail, not zeros
+        if iir is not None:
+            iir.fast_forward_zeros(n - k)
+        tail = iir(np.zeros(k)) if iir is not None and k else np.zeros(k)
+        if fir is not None:
+            fir(tail)
 
     def reset(self) -> None:
         for f in (self.truth, self.pre):
             if f is not None:
                 (f.reset_ihp if isinstance(f, QbloxRTP) else f.reset)()
+                if getattr(f, "fir", None) is not None:        # reset_ihp clears the accumulator only
+                    f.fir.reset()
         self.next_sample = 0
 
     def render(self, v: np.ndarray, start_sample: int) -> np.ndarray:

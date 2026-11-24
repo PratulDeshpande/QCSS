@@ -33,7 +33,8 @@ function ChipMap({ chip, sel, onSel }: { chip: Json; sel: number; onSel: (q: num
       {chip.qubits.map((q: Json) => {
         const [x, y] = pos(q);
         return (
-          <g key={q.qubit_index} onClick={() => onSel(q.qubit_index)} className="cursor-pointer" role="button" aria-label={`select qubit ${q.qubit_index}`}>
+          <g key={q.qubit_index} onClick={() => onSel(q.qubit_index)} className="cursor-pointer" role="button" tabIndex={0} aria-label={`select qubit ${q.qubit_index}`}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSel(q.qubit_index); } }}>
             <circle cx={x} cy={y} r={16} fill={q.qubit_index === sel ? "var(--series-1)" : "var(--surface-3)"} stroke="var(--surface-1)" strokeWidth={2} />
             <text x={x} y={y + 4} textAnchor="middle" fontSize={11} fill={q.qubit_index === sel ? "#fff" : "var(--text-primary)"}>q{q.qubit_index}</text>
             {q.qubit_index === sel && <text x={x} y={y + 30} textAnchor="middle" fontSize={9.5} fill="var(--text-primary)" className="num">{fmt(q.f01_ghz, 3)} GHz</text>}
@@ -67,9 +68,11 @@ export function Chip() {
   const { configBody } = useWorkbench();
   const [hours, setHours] = useState(24);
   const [seed, setSeed] = useState(1);
-  const [sel, setSel] = useState(0);
+  const [picked, setSel] = useState(0);
   const q = useQuery({ queryKey: ["chip", configBody(), hours, seed], queryFn: () => api.post<Json>("/views/chip", { ...configBody(), hours, steps: 120, seed }) });
   const chip = q.data;
+  // A new chip may not have the qubit picked on the old one: fall back to its first.
+  const sel: number = chip && !chip.qubits.some((x: Json) => x.qubit_index === picked) ? chip.qubits[0]?.qubit_index ?? picked : picked;
   const qb: Json | undefined = chip?.qubits.find((x: Json) => x.qubit_index === sel);
   const qi = chip ? chip.qubits.findIndex((x: Json) => x.qubit_index === sel) : 0;
   return (

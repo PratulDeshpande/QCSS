@@ -57,3 +57,60 @@ def test_a_thousand_reps_run_in_a_moment_because_waits_are_skipped_not_spun():
     tr = _trace(reps=1000)
     assert tr.counter(1) == 1000 * POINTS
     assert time.perf_counter() - t0 < 10
+
+
+# -- hand-built programs: the jump and wait paths the compiled Rabi does not take ------------------------------
+
+from qcss.boards.qick.tproc_v2 import Inst
+from qcss.boards.qick.tproc_v2_run import _Machine
+
+
+def _machine(*prog: Inst, s15: int = 0) -> _Machine:
+    m = _Machine(Rabi(SOCCFG, reps=1, final_delay=1.0, cfg={}).binprog, 200.0, 430.08)
+    m.prog, m.s[15] = [Inst(addr=n, kind=i.kind, word=0, **{k: v for k, v in vars(i).items()
+                                                            if k not in ("addr", "kind", "word")})
+                       for n, i in enumerate(prog)], s15
+    return m
+
+
+def _mark(n: int, addr: int) -> Inst:
+    return Inst(addr=n, kind="DMEM_WR", word=0, src="imm", imm=7, mem=(None, addr))
+
+
+def _halt(n: int) -> Inst:
+    return Inst(addr=n, kind="JUMP", word=0, target=n)
+
+
+def test_a_jump_to_the_address_in_s15_skips_what_lies_between():
+    m = _machine(Inst(addr=0, kind="JUMP", word=0), _mark(1, 5), _mark(2, 6), _halt(3), s15=3)
+    assert m.run(100).halted and m.dmem[5] == 0 and m.dmem[6] == 0
+
+
+def test_a_wait_loop_is_skipped_to_its_end_whichever_way_it_is_laid_out():
+    """TEST then JUMP back to the TEST (target pc-1), or to the JUMP itself (target pc)."""
+    for back in (-1, 0):
+        test = Inst(addr=0, kind="TEST", word=0, alu="-", src_a="s11", imm=10_000_000)
+        jump = Inst(addr=1, kind="JUMP", word=0, cond="S", target=1 + back)
+        m = _machine(test, jump, _mark(2, 3), _halt(3))
+        tr = m.run(50)
+        assert tr.halted and m.dmem[3] == 7, back              # past the wait, and not by spinning 10M cycles
+        assert m.core_t >= 10_000_000 and not m.neg
+
+
+def test_the_wait_skip_leaves_the_flags_as_the_loop_would_have_on_exit():
+    test = Inst(addr=0, kind="TEST", word=0, alu="-", src_a="s11", imm=500)
+    m = _machine(test, Inst(addr=1, kind="JUMP", word=0, cond="S", target=0), _halt(2))
+    m.run(20)
+    assert not m.neg                                            # s11 - 500 >= 0 once the wait is over
+
+
+def test_a_negative_memory_address_is_refused_not_wrapped_to_the_end_of_memory():
+    bad = Inst(addr=0, kind="DMEM_WR", word=0, src="imm", imm=1, mem=(None, -1))
+    with pytest.raises(ValueError, match="address"):
+        _machine(bad, _halt(1)).run(10)
+
+
+def test_a_negative_jump_target_is_refused_not_wrapped_to_the_last_instruction():
+    m = _machine(Inst(addr=0, kind="JUMP", word=0), _halt(1), s15=-1)
+    with pytest.raises(ValueError, match="address"):
+        m.run(10)

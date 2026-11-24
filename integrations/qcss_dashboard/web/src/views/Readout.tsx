@@ -4,10 +4,11 @@ import { api, type Json } from "../api";
 import { Heatmap, IQScatter, LineChart } from "../charts";
 import { useWorkbench } from "../state";
 import { Equation, InfoTip, KV, NumberField, Panel, Select, StateBox, TruthBadge, fmt } from "../ui";
-import { DraftNote, ProfilePicker } from "./common";
+import { DraftNote, ProfilePicker, useQubitOptions } from "./common";
 
 export function Readout() {
   const { configBody } = useWorkbench();
+  const qubits = useQubitOptions();
   const [qubit, setQubit] = useState(0);
   const [shots, setShots] = useState(400);
   const [integ, setInteg] = useState(1000);
@@ -27,7 +28,7 @@ export function Readout() {
             differently. The field rings up over ~1/κ, arrives after the time of flight, is integrated with a matched filter and thresholded. T1 decay during the window and amplifier noise (efficiency η) make readout imperfect.</p>
         </div>
         <ProfilePicker />
-        <Select value={String(qubit)} onChange={(v) => setQubit(Number(v))} options={["0", "1", "2", "3", "4"]} label="qubit" />
+        <Select value={String(qubit)} onChange={(v) => setQubit(Number(v))} options={qubits} label="qubit" />
         <NumberField label="shots per level" value={shots} onChange={setShots} min={20} max={2000} width="w-20" />
         <NumberField label="integration" value={integ} onChange={setInteg} unit="ns" min={50} width="w-24" docKey="Acquire.integration_ticks" />
         <NumberField label="seed" value={seed} onChange={setSeed} width="w-16" />

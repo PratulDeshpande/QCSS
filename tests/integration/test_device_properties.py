@@ -2,18 +2,26 @@
 from __future__ import annotations
 
 import math
+import threading
 
 import grpc
 import pytest
 
-from qcss.adapters.grpc_server import serve
+from qcss.adapters.grpc_server import ControlService, serve
 from qcss.config.loader import load_device, load_profile
 from qcss.runtime.jobs import JobManager
 from qcss.runtime.runner import SimulationContext
 from qcss.v1 import control_service_pb2 as pb
 from qcss.v1 import control_service_pb2_grpc as pbg
+from qcss.v1 import device_pb2
 from tests.conftest import PROFILES_DIR, REPO_ROOT
-from tests.integration.test_grpc_end_to_end import _can_connect_loopback, _free_port, fake_runner, fake_validator
+from tests.integration.test_grpc_end_to_end import (
+    MockServicerContext,
+    _can_connect_loopback,
+    _free_port,
+    fake_runner,
+    fake_validator,
+)
 
 DEVICES_DIR = REPO_ROOT / "src" / "qcss" / "config" / "devices"
 
@@ -69,6 +77,23 @@ def test_device_without_a_resonator_reports_perfect_readout():
     ctx = SimulationContext(load_profile(PROFILES_DIR / "test_ideal_1q.yaml"))     # no device file: no resonator
     qubits = ctx.device_properties().qubits
     assert qubits and all(q.prob_meas0_prep1 == 0.0 and q.prob_meas1_prep0 == 0.0 for q in qubits)
+
+
+@pytest.mark.anyio
+async def test_device_properties_are_computed_off_the_event_loop():
+    """The model runs thousands of calibration shots: on the loop it would stall every other RPC."""
+    seen: list[int] = []
+
+    def properties() -> device_pb2.DeviceProperties:
+        seen.append(threading.get_ident())
+        return device_pb2.DeviceProperties()
+    jobs = JobManager(fake_runner, fake_validator)
+    try:
+        svc = ControlService(jobs, pb.DescribeDeviceResponse(), properties=properties)
+        await svc.GetDeviceProperties(pb.GetDevicePropertiesRequest(), MockServicerContext())
+        assert seen and seen[0] != threading.get_ident()
+    finally:
+        await jobs.close()
 
 
 @pytest.mark.anyio

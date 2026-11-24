@@ -5,6 +5,7 @@ lab client can reach reveals or changes the simulation.
 """
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 
 import grpc
@@ -14,6 +15,7 @@ from qcss.adapters.grpc_server import BearerTokenInterceptor
 from qcss.adapters.instrument_faults import InstrumentFaults
 from qcss.admin.v1 import admin_pb2 as apb
 from qcss.admin.v1 import admin_pb2_grpc as apbg
+from qcss.core.limits import MAX_TIME_SCALE
 from qcss.device.state import DeviceState
 from qcss.runtime.jobs import JobManager
 from qcss.runtime.runner import REQUESTED, SimulationContext
@@ -26,15 +28,18 @@ class AdminService(apbg.AdminServiceServicer):
     def __init__(self, ctx: SimulationContext, jobs: JobManager, faults: InstrumentFaults) -> None:
         self.ctx, self.jobs, self.faults = ctx, jobs, faults
 
+    def _apply_scenario(self, state: DeviceState, change: Callable[[DeviceState], None]) -> None:
+        with self.ctx.device_lock:
+            self.ctx.device_parameters(self.ctx.lab_time_s)       # bring the chip to now first
+            change(state)
+
     async def _scenario(self, context: ServicerContext, change: Callable[[DeviceState], None]) -> None:
         state = self.ctx.device_state
         if state is None:
             await context.abort(grpc.StatusCode.FAILED_PRECONDITION, "the chassis runs without a device file")
             return
         try:
-            with self.ctx.device_lock:
-                self.ctx.device_parameters(self.ctx.lab_time_s)       # bring the chip to now first
-                change(state)
+            await asyncio.to_thread(self._apply_scenario, state, change)      # the lock may be held by a job
         except KeyError as err:
             await context.abort(grpc.StatusCode.NOT_FOUND, str(err.args[0]) if err.args else str(err))
         except ValueError as err:
@@ -87,8 +92,9 @@ class AdminService(apbg.AdminServiceServicer):
 
     async def SetMode(self, request: apb.SetModeRequest, context: ServicerContext) -> apb.SetModeResponse:
         m = request.mode
-        if m.time_scale < 0:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "time_scale must be >= 0")
+        if not 0 <= m.time_scale <= MAX_TIME_SCALE:          # NaN fails both comparisons
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT,
+                                f"time_scale must be between 0 and {MAX_TIME_SCALE:g}")
         if m.tier_policy not in REQUESTED:
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"unknown tier {m.tier_policy}")
         self.ctx.set_time_scale(m.time_scale)
@@ -101,11 +107,16 @@ class AdminService(apbg.AdminServiceServicer):
 
     # ------------------------------------------------------------------ what only the simulator knows
     async def ReadTruth(self, request: apb.ReadTruthRequest, context: ServicerContext) -> apb.ReadTruthResponse:
-        lab_t = self.ctx.lab_time_s
-        f_ghz, t1_ns = self.ctx.device_parameters(lab_t)
-        state = self.ctx.device_state
-        dead = {state.device.qubits[r].qubit_index for r in state.scenarios.dead} if state is not None else set()
-        out = apb.ReadTruthResponse(lab_time_s=lab_t, properties=self.ctx.device_properties())
+        return await asyncio.to_thread(self._truth)       # the chip is read under its lock, off the event loop
+
+    def _truth(self) -> apb.ReadTruthResponse:
+        props = self.ctx.device_properties()      # slow (readout model); takes the lock only for the chip read
+        with self.ctx.device_lock:
+            lab_t = self.ctx.lab_time_s
+            f_ghz, t1_ns = self.ctx.device_parameters(lab_t)
+            state = self.ctx.device_state
+            dead = {state.device.qubits[r].qubit_index for r in state.scenarios.dead} if state is not None else set()
+            out = apb.ReadTruthResponse(lab_time_s=lab_t, properties=props)
         for q, f, t1 in zip(self.ctx.qdef, f_ghz, t1_ns, strict=True):
             out.qubits.add(qubit_index=q, frequency_hz=f * 1e9, t1_s=t1 * 1e-9, dead=q in dead)
         return out

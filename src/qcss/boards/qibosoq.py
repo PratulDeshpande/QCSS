@@ -95,7 +95,7 @@ def _envelope(el: Mapping[str, Any], n: int) -> np.ndarray:
         k = half // 2
         return np.concatenate([ramp[:k], np.ones(n - 2 * k), ramp[k:2 * k]]).astype(np.complex128)
     if shape == "hann":
-        return (np.sin(np.pi * np.arange(0, 1, 1 / n)) ** 2).astype(np.complex128)
+        return (np.sin(np.pi * np.arange(n) / n) ** 2).astype(np.complex128)
     if shape == "fluxexponential":
         v = np.exp(-x / el["upsilon"]) + el["weight"] * np.exp(-x / el["tau"])
         return (v / (1 + el["weight"])).astype(np.complex128)

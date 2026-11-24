@@ -79,3 +79,11 @@ def test_a_sound_fit_is_accepted(tech, tmp_path):
     new.mkdir()
     (new / "parameters.json").write_text(json.dumps(_params(amplitude=-0.7)), encoding="utf-8")
     assert tech._plausible(new) == (True, "")
+
+
+def test_a_non_finite_calibration_json_is_refused_too(tech, tmp_path):
+    new = tmp_path / "new"
+    _write_set(new, _params(amplitude=0.6), {"single_qubits": {"0": {"x": float("inf")}}})
+    ok, message = tech._plausible(new)
+    assert not ok
+    assert "calibration.json" in message

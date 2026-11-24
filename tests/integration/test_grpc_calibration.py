@@ -15,6 +15,7 @@ from qcss.runtime.jobs import JobManager
 from qcss.runtime.runner import SimulationContext, create_simulation_runner, create_simulation_validator
 from qcss.v1 import calibration_pb2, device_pb2, job_pb2
 from qcss.v1 import control_service_pb2 as pb
+from tests.integration.test_grpc_end_to_end import fake_runner
 
 PROFILES = "src/qcss/config/profiles/"
 IDEAL = load_profile(PROFILES + "test_ideal_1q.yaml")
@@ -141,5 +142,105 @@ async def test_os_discriminator_threshold_is_applied_on_t2():
             qubit_index=0, drive_frequency_hz=5.0e9, readout_threshold=1e9, readout_rotation_rad=0.0)])
         await svc.UpdateCalibration(pb.UpdateCalibrationRequest(snapshot=cal, expected_epoch=0), Ctx())
         assert await _p1(svc, _pi_job(job_pb2.FIDELITY_TIER_T2_LINDBLAD, shots=400)) == 0.0
+    finally:
+        await jobs.close()
+
+
+C = calibration_pb2
+NAN, INF = float("nan"), float("inf")
+DEV5 = load_device("src/qcss/config/devices/transmon_5q.yaml")
+
+
+def _exp(tau_s: float, amplitude: float) -> C.QubitCalibration:
+    stage = C.ExponentialStage(tau_s=tau_s, amplitude=amplitude, enabled=True)
+    return C.QubitCalibration(qubit_index=0, flux_predistortion=C.FluxPredistortion(exponential=[stage]))
+
+
+UNUSABLE = {
+    "tau_below_range": _exp(1e-12, -1.0),
+    "singular_amplitude": _exp(50e-9, -1.0),
+    "nan_fir": C.QubitCalibration(qubit_index=0, flux_predistortion=C.FluxPredistortion(fir_coefficients=[NAN] * 32)),
+    "negative_highpass": C.QubitCalibration(qubit_index=0,
+                                            flux_predistortion=C.FluxPredistortion(inverse_highpass_tau_s=-1.0)),
+    "nan_frequency": C.QubitCalibration(qubit_index=0, drive_frequency_hz=NAN),
+    "infinite_mixer": C.QubitCalibration(qubit_index=0, drive_mixer=C.MixerCorrection(gain_ratio=INF)),
+    "unknown_qubit": C.QubitCalibration(qubit_index=99),
+}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("name", UNUSABLE)
+async def test_a_calibration_the_instrument_cannot_use_is_refused_and_changes_nothing(name):
+    svc, jobs = _service(QBLOX, DEV5)
+    try:
+        before = svc.calibration.snapshot()
+        ctx = Ctx()
+        upd = C.CalibrationSnapshot(qubits=[UNUSABLE[name]])
+        with pytest.raises(grpc.RpcError):
+            await svc.UpdateCalibration(pb.UpdateCalibrationRequest(snapshot=upd, expected_epoch=0), ctx)
+        assert ctx.status[0] == grpc.StatusCode.INVALID_ARGUMENT
+        assert svc.calibration.snapshot() == before
+    finally:
+        await jobs.close()
+
+
+@pytest.mark.anyio
+async def test_a_refused_calibration_leaves_the_chassis_running_jobs():
+    svc, jobs = _service(QBLOX, DEV5)
+    try:
+        upd = C.CalibrationSnapshot(qubits=[UNUSABLE["tau_below_range"]])
+        with pytest.raises(grpc.RpcError):
+            await svc.UpdateCalibration(pb.UpdateCalibrationRequest(snapshot=upd, expected_epoch=0), Ctx())
+        assert 0.0 <= await _p1(svc, _pi_job(shots=10)) <= 1.0
+    finally:
+        await jobs.close()
+
+
+@pytest.mark.anyio
+async def test_a_usable_predistortion_is_accepted_and_runs():
+    svc, jobs = _service(QBLOX, DEV5)
+    try:
+        current = svc.calibration.snapshot([0]).qubits[0]
+        good = C.QubitCalibration()
+        good.CopyFrom(current)
+        good.flux_predistortion.CopyFrom(_exp(50e-9, 0.01).flux_predistortion)
+        upd = C.CalibrationSnapshot(qubits=[good])
+        r = await svc.UpdateCalibration(pb.UpdateCalibrationRequest(snapshot=upd, expected_epoch=0), Ctx())
+        assert r.new_epoch == 1
+        assert 0.0 <= await _p1(svc, _pi_job(shots=10)) <= 1.0
+    finally:
+        await jobs.close()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("raised, code", [
+    (ValueError("cannot reshape in StimT1a"), grpc.StatusCode.INVALID_ARGUMENT),
+    (KeyError("lindblad table"), grpc.StatusCode.INTERNAL),      # a stray lookup is our bug, not bad input
+    (RuntimeError("surrogate blew up"), grpc.StatusCode.INTERNAL),
+])
+async def test_a_lab_chassis_reports_unexpected_failures_without_its_insides(raised, code):
+    async def failing(job):
+        raise raised
+    jobs = JobManager(fake_runner, failing, expose_diagnostics=False)
+    try:
+        svc, ctx = ControlService(jobs, pb.DescribeDeviceResponse()), Ctx()
+        with pytest.raises(grpc.RpcError):
+            await svc.SubmitJob(pb.SubmitJobRequest(job=job_pb2.Job(num_shots=1)), ctx)
+        assert ctx.status[0] == code
+        assert not any(tell in ctx.status[1] for tell in ("StimT1a", "lindblad", "surrogate", "Unexpected", "class"))
+    finally:
+        await jobs.close()
+
+
+@pytest.mark.anyio
+async def test_a_development_server_explains_bad_input():
+    async def failing(job):
+        raise ValueError("bad shape for waveform w")
+    jobs = JobManager(fake_runner, failing)
+    try:
+        svc, ctx = ControlService(jobs, pb.DescribeDeviceResponse()), Ctx()
+        with pytest.raises(grpc.RpcError):
+            await svc.SubmitJob(pb.SubmitJobRequest(job=job_pb2.Job(num_shots=1)), ctx)
+        assert ctx.status == (grpc.StatusCode.INVALID_ARGUMENT, "bad shape for waveform w")
     finally:
         await jobs.close()

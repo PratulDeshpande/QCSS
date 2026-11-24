@@ -3,14 +3,16 @@ import { useState } from "react";
 import { api, type Json } from "../api";
 import { IQScatter, LineChart } from "../charts";
 import { Badge, Button, KV, LabBadge, NumberField, Panel, Select, StateBox, fmt } from "../ui";
+import { useQubitOptions } from "./common";
 
 export type ExpParams = { kind: string; qubit: number; points: number; shots: number; tier: string; pi_amplitude?: number; max_delay_us?: number; detuning_mhz?: number; span_mhz?: number };
 
 export function ExperimentForm({ p, set }: { p: ExpParams; set: (p: ExpParams) => void }) {
   const ex = useQuery({ queryKey: ["experiments"], queryFn: () => api.get<Json>("/experiments") });
   const meta = ex.data?.experiments?.[p.kind];
+  const qubits = useQubitOptions();
   const num = (k: keyof ExpParams, label: string, unit?: string, step?: number) => (
-    <NumberField label={label} unit={unit} step={step} value={(p[k] as number) ?? NaN} width="w-20"
+    <NumberField label={label} unit={unit} step={step} value={(p[k] as number) ?? NaN} width="w-20" blankable
       onChange={(v) => set({ ...p, [k]: Number.isFinite(v) ? v : undefined })} />
   );
   return (
@@ -18,7 +20,7 @@ export function ExperimentForm({ p, set }: { p: ExpParams; set: (p: ExpParams) =
       <div className="flex flex-wrap items-end gap-3">
         <Select value={p.kind} onChange={(k) => set({ ...p, kind: k })} label="experiment"
           options={Object.entries(ex.data?.experiments ?? {}).map(([k, v]: [string, any]) => ({ value: k, label: v.name }))} />
-        <Select value={String(p.qubit)} onChange={(v) => set({ ...p, qubit: Number(v) })} options={["0", "1", "2", "3", "4"]} label="qubit" />
+        <Select value={String(p.qubit)} onChange={(v) => set({ ...p, qubit: Number(v) })} options={qubits} label="qubit" />
         {num("points", "points")}{num("shots", "shots")}
         <Select value={p.tier} onChange={(t) => set({ ...p, tier: t })} options={["AUTO", "T0", "T1A", "T1B", "T2"]} label="tier" />
         {p.kind !== "rabi" && num("pi_amplitude", "π amplitude (blank = estimate)", "FS", 0.01)}

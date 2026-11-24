@@ -159,3 +159,30 @@ def test_simultaneous_gates_on_a_shared_drive_sequencer_run(driver):
     h = driver.submit(native("bit[2] c;\nrz(0.3) $0;\nrz(0.3) $1;\nx $0;\nx $1;\nc[0] = measure $0;\nc[1] = measure $1;"))
     r = driver.result(h)
     assert r.counts.get("11", 0) > 150
+
+
+def test_an_unknown_job_state_is_a_permanent_error_not_a_keyerror():
+    from types import SimpleNamespace
+
+    from quark_qcss.contracts import Handle
+
+    class Odd:
+        cancelled = None
+
+        def status(self, job_id):
+            return SimpleNamespace(state=0)             # JOB_STATE_UNSPECIFIED
+
+        def wait(self, job_id, *, timeout_s=None):
+            raise TimeoutError("too slow")
+
+        def cancel(self, job_id):
+            self.cancelled = job_id
+
+    client = Odd()
+    d = QcssExecutionDriver(client, None)               # type: ignore[arg-type]
+    h = Handle(job_id="q", backend_job_id="b1", calibration_epoch=1, clbits=[], submitted_at=__import__("datetime").datetime.now(__import__("datetime").UTC))
+    with pytest.raises(PermanentDriverError, match="unknown state"):
+        d.status(h)
+    with pytest.raises(PermanentDriverError) as err:
+        d.result(h)
+    assert err.value.code == "RESULT_TIMEOUT" and client.cancelled == "b1"

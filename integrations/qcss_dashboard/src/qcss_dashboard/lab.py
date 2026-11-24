@@ -6,6 +6,7 @@ ground truth next to it.
 """
 from __future__ import annotations
 
+import contextlib
 import threading
 import time
 from typing import Any
@@ -75,7 +76,14 @@ class LabBench:
                 entry = {"job_id": job_id, "kind": kind, "qubit": qubit, "submitted": time.time(),
                          "state": "JOB_STATE_QUEUED", "calibration_epoch": epoch}
                 self._record(entry)
-                status = c.wait(job_id, timeout_s=float(body.get("timeout_s", 900.0)))
+                try:
+                    status = c.wait(job_id, timeout_s=float(body.get("timeout_s", 900.0)))
+                except TimeoutError as exc:
+                    entry["state"] = "TIMEOUT"
+                    with contextlib.suppress(Exception):
+                        c.cancel(job_id)
+                    raise LinkError(f"job {job_id} did not finish in time and was cancelled", 504,
+                                    {"job_id": job_id, "state": "TIMEOUT"}) from exc
                 entry["state"] = result_pb2.JobState.Name(status.state)
                 entry["message"] = status.message
                 entry["elapsed_s"] = time.perf_counter() - t0

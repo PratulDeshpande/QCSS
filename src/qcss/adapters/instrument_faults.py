@@ -14,6 +14,7 @@ from typing import Any
 import grpc
 
 from qcss.admin.v1 import admin_pb2 as apb
+from qcss.core.limits import MAX_FAULT_COUNT, MAX_FAULT_DURATION_S
 
 _EXEMPT = ("/grpc.health.v1.Health/",)   # liveness probes do not consume injected faults
 _RESET = "Connection reset by peer"
@@ -33,8 +34,10 @@ class InstrumentFaults:
         self._down_until = 0.0
 
     def inject(self, fault: int, count: int = 0, duration_s: float = 0.0) -> None:
-        if duration_s < 0:
-            raise ValueError("duration_s must be >= 0")
+        if not 0 <= duration_s <= MAX_FAULT_DURATION_S:       # NaN fails both comparisons
+            raise ValueError(f"duration_s must be between 0 and {MAX_FAULT_DURATION_S:g}")
+        if count > MAX_FAULT_COUNT:
+            raise ValueError(f"count must be at most {MAX_FAULT_COUNT}")
         n = max(count, 1)
         if fault == apb.INSTRUMENT_FAULT_HANG:
             self._hang += [duration_s] * n

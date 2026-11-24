@@ -50,3 +50,18 @@ def test_uncorrected_flux_line_carries_its_tail_into_the_next_pulse():
     a = chain.render(pulse, start_sample=0)
     b = chain.render(pulse, start_sample=200)
     assert not np.allclose(a, b)                             # inter-pulse ISI from the long time constant
+
+
+def test_an_idle_gap_gives_the_fir_the_iir_tail_and_reset_clears_the_fir_too():
+    def chain() -> FluxChain:
+        rtp = QbloxRTP(1e9)
+        rtp.configure([(0.3, 40e-9)], None, np.r_[1.0, 0.5, np.zeros(30)])
+        return FluxChain(predistortion=rtp)
+    pulse, gap = np.ones(20), 10
+    gapped, whole = chain(), chain()
+    gapped.render(pulse, 0)
+    out = gapped.render(pulse, 20 + gap)
+    ref = whole.render(np.r_[pulse, np.zeros(gap), pulse], 0)
+    assert np.allclose(out, ref[20 + gap:])                  # the same as streaming the idle samples
+    gapped.reset()
+    assert not np.any(gapped.pre.fir.zi)

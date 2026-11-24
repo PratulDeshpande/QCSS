@@ -1,5 +1,5 @@
 import katex from "katex";
-import { useMemo, useState, type ReactNode } from "react";
+import { Component, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import { useFieldDoc, useRegistry, type FieldDoc } from "./registry";
 
 export const cx = (...c: (string | false | null | undefined)[]) => c.filter(Boolean).join(" ");
@@ -103,16 +103,23 @@ export function Select({ value, onChange, options, label, className }: {
   );
 }
 
-export function NumberField({ label, value, onChange, step, min, max, unit, docKey, width = "w-24" }: {
+/** A number input. A cleared or half-typed field ("", "-") is not a number, so it is not reported (callers store the value
+ *  raw into query keys and request bodies) unless `blankable`: then NaN means "left blank". */
+export function NumberField({ label, value, onChange, step, min, max, unit, docKey, width = "w-24", blankable }: {
   label: ReactNode; value: number; onChange: (v: number) => void; step?: number; min?: number; max?: number;
-  unit?: string; docKey?: string; width?: string;
+  unit?: string; docKey?: string; width?: string; blankable?: boolean;
 }) {
+  const [text, setText] = useState(Number.isFinite(value) ? String(value) : "");
+  // Follow outside changes, but never overwrite what the user is typing (text is the sanitized DOM value).
+  useEffect(() => {
+    setText((t) => (Number(t) === value || (t === "" && !Number.isFinite(value)) ? t : Number.isFinite(value) ? String(value) : ""));
+  }, [value]);
   return (
     <label className="flex flex-col gap-1 text-[11px] text-mute">
       <span className="flex items-center gap-1">{label}{docKey && <InfoTip docKey={docKey} />}</span>
       <span className="flex items-center gap-1">
-        <input type="number" value={Number.isFinite(value) ? value : ""} step={step} min={min} max={max}
-          onChange={(e) => onChange(e.target.valueAsNumber)}
+        <input type="number" value={text} step={step} min={min} max={max}
+          onChange={(e) => { setText(e.target.value); const n = e.target.valueAsNumber; if (blankable || Number.isFinite(n)) onChange(n); }}
           className={cx("num h-7 rounded-md border border-line bg-s2 px-2 text-[12px] text-ink", width)} />
         {unit && <span className="text-[11px]">{unit}</span>}
       </span>
@@ -133,9 +140,15 @@ export function Tabs<T extends string>({ tabs, value, onChange }: {
   tabs: { id: T; label: ReactNode }[]; value: T; onChange: (t: T) => void;
 }) {
   return (
-    <div role="tablist" className="flex flex-wrap gap-1 border-b border-line">
+    <div role="tablist" className="flex flex-wrap gap-1 border-b border-line" onKeyDown={(e) => {
+      const d = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
+      if (!d) return;
+      const all = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]')];
+      const next = all[(all.indexOf(document.activeElement as HTMLElement) + d + all.length) % all.length];
+      e.preventDefault(); next?.focus(); next?.click();
+    }}>
       {tabs.map((t) => (
-        <button key={t.id} role="tab" aria-selected={value === t.id} onClick={() => onChange(t.id)}
+        <button key={t.id} role="tab" aria-selected={value === t.id} tabIndex={value === t.id ? 0 : -1} onClick={() => onChange(t.id)}
           className={cx("-mb-px border-b-2 px-3 py-1.5 text-[12px]", value === t.id ? "border-accent text-ink" : "border-transparent text-mute hover:text-ink2")}>
           {t.label}
         </button>
@@ -169,7 +182,7 @@ export function Equation({ tex, block }: { tex: string; block?: boolean }) {
     try {
       return katex.renderToString(tex, { throwOnError: false, displayMode: !!block });
     } catch {
-      return tex;
+      return tex.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);   // never hand raw text to innerHTML
     }
   }, [tex, block]);
   return <span className={block ? "block overflow-x-auto py-1" : ""} dangerouslySetInnerHTML={{ __html: html }} />;
@@ -255,3 +268,20 @@ export const fmt = (v: number | null | undefined, d = 3) =>
   v === null || v === undefined || !Number.isFinite(v)
     ? "—"
     : Math.abs(v) >= 1e5 || (Math.abs(v) < 1e-3 && v !== 0) ? v.toExponential(2) : v.toFixed(d);
+
+/** Keeps one view's crash from blanking the whole app; remount (key it by route) or press the button to recover. */
+export class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error("view crashed", error, info.componentStack); }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div role="alert" className="rounded-md border border-crit/50 bg-crit/10 p-4 text-[12.5px] text-ink2">
+        <div className="font-medium text-crit">✕ This view crashed: {this.state.error.message}</div>
+        <p className="mt-1">The rest of the app is fine. Try again, or open another view.</p>
+        <div className="mt-2"><Button onClick={() => this.setState({ error: null })}>Try again</Button></div>
+      </div>
+    );
+  }
+}

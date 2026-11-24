@@ -1,6 +1,7 @@
 """grpc.aio ControlService with rich status, calibration epochs, health checking, and reflection."""
 from __future__ import annotations
 
+import asyncio
 import hmac
 import inspect
 import logging
@@ -14,7 +15,7 @@ from qcss.adapters.instrument_faults import InstrumentFaultInterceptor, Instrume
 from qcss.core.errors import HardwareValidationError, TierRoutingError
 from qcss.core.net import is_local_address
 from qcss.runtime.calibration_store import CalibrationEpochError, CalibrationStore
-from qcss.runtime.jobs import JobManager, ResultsEvictedError
+from qcss.runtime.jobs import JobManager, JobQueueFullError, ResultsEvictedError
 from qcss.v1 import control_service_pb2 as pb
 from qcss.v1 import control_service_pb2_grpc as pbg
 from qcss.v1 import device_pb2
@@ -37,6 +38,15 @@ class ControlService(pbg.ControlServiceServicer):
         self.calibration = calibration if calibration is not None else CalibrationStore()
         self.properties = properties
 
+    async def _abort_unexpected(self, context: ServicerContext, rpc: str, err: Exception) -> NoReturn:
+        """Bad input no validator named is the client's fault; anything else is ours. A lab chassis says neither why."""
+        if isinstance(err, ValueError):      # a stray KeyError is our bug, not bad input
+            log.warning("%s: invalid request: %s", rpc, err)
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(err)[:1000] if self.jobs.expose_diagnostics
+                                else "the request is not valid for this instrument")
+        log.error("%s failed", rpc, exc_info=err)
+        await context.abort(grpc.StatusCode.INTERNAL, "instrument error")
+
     async def SubmitJob(self, request: pb.SubmitJobRequest, context: ServicerContext) -> pb.SubmitJobResponse:
         try:
             job_id = await self.jobs.submit(request.job)
@@ -53,6 +63,10 @@ class ControlService(pbg.ControlServiceServicer):
                 await context.abort_with_status(failed_precondition_status(
                     "INSTRUMENT_RESOURCES", "job", "the sequence exceeds the instrument's resources"))
             await context.abort_with_status(failed_precondition_status("FIDELITY_TIER", "job.requested_tier", str(err)))
+        except JobQueueFullError as err:
+            await context.abort(grpc.StatusCode.RESOURCE_EXHAUSTED, str(err))
+        except Exception as err:                            # noqa: BLE001
+            await self._abort_unexpected(context, "SubmitJob", err)
 
     async def GetJobStatus(self, request: pb.GetJobStatusRequest, context: ServicerContext) -> pb.GetJobStatusResponse:
         try:
@@ -85,8 +99,12 @@ class ControlService(pbg.ControlServiceServicer):
         try:
             return pb.UpdateCalibrationResponse(new_epoch=self.calibration.update(request.snapshot,
                                                                                   request.expected_epoch))
+        except HardwareValidationError as err:
+            await context.abort_with_status(invalid_argument_status(err))
         except CalibrationEpochError as err:
             await context.abort_with_status(failed_precondition_status("CALIBRATION_EPOCH", "expected_epoch", str(err)))
+        except Exception as err:                            # noqa: BLE001
+            await self._abort_unexpected(context, "UpdateCalibration", err)
 
     async def DescribeDevice(self, request: pb.DescribeDeviceRequest,
                              context: ServicerContext) -> pb.DescribeDeviceResponse:
@@ -96,7 +114,8 @@ class ControlService(pbg.ControlServiceServicer):
                                   context: ServicerContext) -> pb.GetDevicePropertiesResponse:
         if self.properties is None:
             await context.abort(grpc.StatusCode.UNIMPLEMENTED, "Method not implemented!")
-        return pb.GetDevicePropertiesResponse(properties=self.properties())
+        # thousands of calibration shots: on the event loop this would stall every other RPC
+        return pb.GetDevicePropertiesResponse(properties=await asyncio.to_thread(self.properties))
 
 
 def describe_device(profile, bindings) -> pb.DescribeDeviceResponse:
@@ -147,16 +166,13 @@ class BearerTokenInterceptor(grpc.aio.ServerInterceptor):
     ) -> grpc.RpcMethodHandler | None:
         md = {k: v for k, v in (handler_call_details.invocation_metadata or ())}
         method = handler_call_details.method or ""
-        job_id, trace = md.get("x-quark-job-id"), md.get("traceparent")
-        if job_id or trace:
-            log.info("rpc %s quark_job_id=%s traceparent=%s", method, job_id, trace)
         handler = await continuation(handler_call_details)
-        if handler is None or self._expected is None or method.startswith(_PUBLIC_METHOD_PREFIXES):
-            return handler
-        got = md.get("authorization", "")
-        if hmac.compare_digest(str(got).encode(), self._expected):
-            return handler
-        return _deny(handler)
+        if handler is not None and self._expected is not None and not method.startswith(_PUBLIC_METHOD_PREFIXES)                 and not hmac.compare_digest(str(md.get("authorization", "")).encode(), self._expected):
+            return _deny(handler)
+        job_id, trace = md.get("x-quark-job-id"), md.get("traceparent")      # logged only for callers let in
+        if job_id or trace:
+            log.info("rpc %s quark_job_id=%.64s traceparent=%.128s", method, job_id, trace)
+        return handler
 
 
 def _deny(handler: grpc.RpcMethodHandler) -> grpc.RpcMethodHandler:
@@ -178,6 +194,15 @@ def _deny(handler: grpc.RpcMethodHandler) -> grpc.RpcMethodHandler:
     return grpc.stream_stream_rpc_method_handler(abort_stream, **kw)
 
 
+async def mark_not_serving(server: grpc.aio.Server) -> None:
+    """Tell health checks this server is going away, before it stops answering."""
+    servicer = getattr(server, "health_servicer", None)
+    if servicer is not None:
+        res = servicer.enter_graceful_shutdown()
+        if inspect.isawaitable(res):
+            await res
+
+
 async def serve(
     address: str, jobs: JobManager, device: pb.DescribeDeviceResponse | None = None,
     calibration: CalibrationStore | None = None, *,
@@ -194,6 +219,7 @@ async def serve(
     """
     device_desc = device if device is not None else pb.DescribeDeviceResponse()
     server = grpc.aio.server(
+        maximum_concurrent_rpcs=256,                    # past this, calls get RESOURCE_EXHAUSTED rather than pile up
         interceptors=[BearerTokenInterceptor(token)] + ([InstrumentFaultInterceptor(faults)] if faults else []),
         options=[
             ("grpc.max_send_message_length", 16 << 20),
@@ -218,6 +244,7 @@ async def serve(
             if inspect.isawaitable(res):
                 await res
         health_name = health.SERVICE_NAME
+        server.health_servicer = health_servicer        # type: ignore[attr-defined]   # for mark_not_serving
     except ImportError:
         health_name = None
 

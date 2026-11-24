@@ -87,3 +87,26 @@ def test_clear_scenarios_restores_the_untouched_device():
     s.tls_collision(0)
     s.clear_scenarios()
     assert s.snapshot() == before
+
+
+@pytest.mark.parametrize("call", [
+    lambda s: s.drift_step(0, df_ghz=float("nan")), lambda s: s.drift_step(0, t1_factor=float("nan")),
+    lambda s: s.tls_collision(0, g_mhz=float("inf")), lambda s: s.burst(0, peak_gamma_per_us=float("nan")),
+    lambda s: s.advance_time(float("nan"))])
+def test_non_finite_scenario_inputs_are_refused(call):
+    with pytest.raises(ValueError):
+        call(state())
+
+
+def test_a_bad_saved_state_changes_nothing_and_dynamics_mismatch_is_refused():
+    a, b = state(), state(seed=2)
+    saved = a.to_dict()
+    before = b.to_dict()
+    bad = {**saved, "scenarios": {**saved["scenarios"], "t1_factor": saved["scenarios"]["t1_factor"][:-1]}}
+    with pytest.raises(ValueError):
+        b.load_dict(bad)
+    with pytest.raises(ValueError):
+        b.load_dict({**saved, "bursts": {**saved["bursts"], "next_s": float("nan")}})
+    with pytest.raises(ValueError):
+        b.load_dict({k: v for k, v in saved.items() if k != "t1_ou"})      # saved with dynamics off
+    assert b.to_dict() == before
