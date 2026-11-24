@@ -20,7 +20,10 @@ export function Admin() {
   useEffect(() => {
     const qs: Json[] | undefined = live?.truth?.qubits;
     if (!qs) return;
-    hist.current = [...hist.current.slice(-299), { t: live!.truth.lab_time_s, f: qs.map((q) => q.frequency_hz), t1: qs.map((q) => q.t1_s * 1e6) }];
+    const t = live!.truth.lab_time_s, last = hist.current[hist.current.length - 1];
+    // A restart (lab time goes back) or a different qubit count starts a new series: old samples no longer line up.
+    const keep = last && t >= last.t && last.f.length === qs.length ? hist.current.slice(-299) : [];
+    hist.current = [...keep, { t, f: qs.map((q) => q.frequency_hz), t1: qs.map((q) => q.t1_s * 1e6) }];
     force((n) => n + 1);
   }, [live]);
   const act = useMutation({

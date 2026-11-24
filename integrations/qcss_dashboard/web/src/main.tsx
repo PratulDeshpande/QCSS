@@ -1,13 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Route, Routes, useLocation } from "react-router-dom";
 import { setToken } from "./api";
 import "./index.css";
 import { RegistryProvider } from "./registry";
 import { Shell } from "./Shell";
 import { WorkbenchProvider } from "./state";
-import { Button } from "./ui";
+import { Button, ErrorBoundary } from "./ui";
 import { Admin } from "./views/Admin";
 import { Atlas } from "./views/Atlas";
 import { Boards } from "./views/Boards";
@@ -42,6 +42,32 @@ function Login() {
   );
 }
 
+/** The routed view, inside a boundary keyed by path so navigating away recovers from a crash. */
+function Views() {
+  const { pathname } = useLocation();
+  return (
+    <ErrorBoundary key={pathname}>
+      <Routes>
+        <Route path="/" element={<Atlas />} />
+        <Route path="/config" element={<ConfigStudio />} />
+        <Route path="/hardware" element={<Hardware />} />
+        <Route path="/program" element={<Program />} />
+        <Route path="/signal" element={<Signal />} />
+        <Route path="/chip" element={<Chip />} />
+        <Route path="/physics" element={<Physics />} />
+        <Route path="/readout" element={<Readout />} />
+        <Route path="/timing" element={<Timing />} />
+        <Route path="/boards" element={<Boards />} />
+        <Route path="/admin" element={<Admin />} />
+        <Route path="/lab" element={<LabBench />} />
+        <Route path="/whatif" element={<WhatIf />} />
+        <Route path="/learn" element={<Learn />} />
+        <Route path="*" element={<div className="text-mute">No such view.</div>} />
+      </Routes>
+    </ErrorBoundary>
+  );
+}
+
 function App() {
   const [needsLogin, setNeedsLogin] = useState(false);
   queryClient.getQueryCache().config.onError = (e: any) => { if (e?.status === 401) setNeedsLogin(true); };
@@ -51,23 +77,7 @@ function App() {
       <WorkbenchProvider>
         <BrowserRouter>
           <Shell>
-            <Routes>
-              <Route path="/" element={<Atlas />} />
-              <Route path="/config" element={<ConfigStudio />} />
-              <Route path="/hardware" element={<Hardware />} />
-              <Route path="/program" element={<Program />} />
-              <Route path="/signal" element={<Signal />} />
-              <Route path="/chip" element={<Chip />} />
-              <Route path="/physics" element={<Physics />} />
-              <Route path="/readout" element={<Readout />} />
-              <Route path="/timing" element={<Timing />} />
-              <Route path="/boards" element={<Boards />} />
-              <Route path="/admin" element={<Admin />} />
-              <Route path="/lab" element={<LabBench />} />
-              <Route path="/whatif" element={<WhatIf />} />
-              <Route path="/learn" element={<Learn />} />
-              <Route path="*" element={<div className="text-mute">No such view.</div>} />
-            </Routes>
+            <Views />
           </Shell>
         </BrowserRouter>
       </WorkbenchProvider>

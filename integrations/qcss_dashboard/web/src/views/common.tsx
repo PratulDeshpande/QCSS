@@ -18,6 +18,14 @@ export function ProfilePicker({ device = true }: { device?: boolean }) {
   );
 }
 
+/** The qubit indices of the device the sandbox is using, read from the shipped config; five until it loads. */
+export function useQubitOptions(): string[] {
+  const { wb } = useWorkbench();
+  const dev = useQuery({ queryKey: ["device-qubits", wb.device], queryFn: () => api.get<Json>(`/configs/device/${wb.device}`), enabled: !!wb.device });
+  const ids: number[] | undefined = dev.data?.data?.qubits?.map((q: Json) => q.qubit_index);
+  return ids?.length ? ids.map(String) : ["0", "1", "2", "3", "4"];
+}
+
 export function DraftNote() {
   const { wb, set } = useWorkbench();
   if (!wb.profileYaml && !wb.deviceYaml) return null;

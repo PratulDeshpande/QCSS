@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { api, type Json } from "../api";
 import { calibrationWrite } from "../calibration";
@@ -150,11 +150,20 @@ function ConfigEditor({ kind }: { kind: "profile" | "device" }) {
     queryFn: () => api.post<Json>(`/configs/${kind}/diff`, { base: name, yaml: text }),
   });
   useEffect(() => { if (validation.data?.ok) setData(validation.data.data); }, [validation.data]);
-  const edit = async (p: (string | number)[], v: any) => {
-    const nd = setPath(data, p, v);
-    const r = await api.post<Json>(`/configs/${kind}/dump`, { data: nd });
-    setText(r.yaml);
-  };
+  // Edits run one at a time on the latest data, so two quick blurs both land and a failed /dump is shown, not thrown.
+  const latest = useRef<any>(null);
+  useEffect(() => { latest.current = data; }, [data]);
+  const queue = useRef<Promise<void>>(Promise.resolve());
+  const edit = (p: (string | number)[], v: any) => (queue.current = queue.current.then(async () => {
+    const before = latest.current;
+    try {
+      latest.current = setPath(before, p, v);
+      setText((await api.post<Json>(`/configs/${kind}/dump`, { data: latest.current })).yaml);
+    } catch (e) {
+      latest.current = before;
+      setMsg({ tone: "crit", text: `edit failed: ${(e as Error).message}` });
+    }
+  }));
   const save = useMutation({
     mutationFn: () => api.put<Json>(`/configs/${kind}/${saveAs}`, { yaml: text }),
     onSuccess: () => { setMsg({ tone: "good", text: `saved as ${saveAs} in the dashboard workspace` }); qc.invalidateQueries({ queryKey: ["configs"] }); },
